@@ -31,13 +31,10 @@ Designed as a portfolio piece for **Sony Interactive Entertainment (SIE)** and s
                                        [DMA Engine + Decompressor]
                                                   │
                                                   ▼
-                                       [NPU Cache + Eviction Policy]
+                                       [Multi-core NPU + Shared Cache + Eviction]
                                                   │
                                                   ▼
                                        [Metrics Collector → CSV]
-                                                  │
-                                                  ▼
-                                       [Python Visualizer]
 ```
 
 ---
@@ -82,21 +79,25 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ### Phase 0 — Bootstrap `[ ]`
 - [ ] Repo init, license, `.gitignore`, `README.md` skeleton
-- [ ] Build system (CMake, C++20)
+- [ ] Build system (CMake, C++20, `yaml-cpp`, `doctest`)
 - [ ] CI stub (GitHub Actions: build + run smoke test)
-- [ ] Folder layout: `src/`, `include/`, `sim/`, `tools/`, `docs/`, `scripts/`
+- [ ] Folder layout: `src/`, `include/`, `sim/`, `scenarios/`, `docs/`, `scripts/`
+- [ ] Top-level `config.yaml` with initial system parameters
 
 ### Phase 1 — Simulation Core `[ ]`
-- [ ] Discrete-event simulator skeleton (cycle = 1 μs)
+- [ ] Discrete-event simulator skeleton (event-driven, μs resolution)
 - [ ] `Clock`, `Event`, `EventQueue` primitives
+- [ ] `Config` loader (YAML → typed struct, injectable for tests)
 - [ ] Trace logger (binary + CSV exporter)
-- [ ] Unit-test harness (Catch2 or doctest)
+- [ ] Unit-test harness (`doctest`)
 
-### Phase 2 — Traffic Injectors `[ ]`
+### Phase 2 — Traffic Injectors + Dumb Predictor `[ ]`
 - [ ] `AudioTrafficGen` — steady 5 MB/s, 256B packets, hard deadline
 - [ ] `TextureTrafficGen` — bursty up to 500 MB/s, large blocks
 - [ ] `AIWeightRequest` — on-demand prefetch, variable size
 - [ ] Each tagged with `{priority, deadline, size}`
+- [ ] `Predictor` interface + scripted/dumb implementation (real one in Phase 6)
+- [ ] Scenario YAML schema documented in `docs/scenario-schema.md`
 
 ### Phase 3 — Pillar A: Virtual AXI Scheduler `[ ]`
 - [ ] Baseline FIFO scheduler (control group)
@@ -128,16 +129,18 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [ ] Configurable ratio (2:1) and per-block latency
 - [ ] Optional CPU-fallback path to show contrast
 
-### Phase 8 — Extended Pillar F + G: Eviction & Degradation `[ ]`
+### Phase 8 — Multi-core NPU, Eviction, Degradation `[ ]`
+- [ ] Multi-core NPU model: N execution units, per-core request queue
+- [ ] Shared weight cache across cores
 - [ ] Distance-weighted LRU on NPU cache
 - [ ] Timeout-driven fallback to previous LOD tier
 - [ ] "Never block the frame" guarantee — assert in tests
+- [ ] Per-core and aggregate KPI reporting
 
-### Phase 9 — Reporting & Visualization `[ ]`
+### Phase 9 — Reporting `[ ]`
 - [ ] CSV schema for per-event trace
-- [ ] Python `tools/plot.py` — Gantt-style bus timeline
-- [ ] Python `tools/kpi.py` — KPI table generator (markdown)
-- [ ] Side-by-side baseline vs NeuroStream report
+- [ ] KPI summary written to markdown after each run
+- [ ] Side-by-side baseline vs NeuroStream report (CSV diff helper in C++)
 
 ### Phase 10 — Scenarios & Demo `[ ]`
 - [ ] Scenario 1: Quiet world (sanity check)
@@ -159,6 +162,8 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - Real NPU inference — weights are opaque blobs sized realistically
 - GPU rendering — texture traffic is modeled as bandwidth only
 - Networking / multiplayer
+- Per-core private NPU caches (shared cache only; private caches deferred)
+- Python tooling in the build (CSV may be analyzed externally)
 
 ---
 
