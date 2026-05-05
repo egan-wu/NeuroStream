@@ -122,6 +122,63 @@ Cross-cutting decisions made before any phase implementation begins.
   6 only swaps the implementation behind it.
 - **Date:** 2026-05-05
 
+### Decision: Config vs scenario file split
+
+- **Choice:** Two YAML files with distinct responsibilities.
+  - `config.yaml` — hardware constants and policy defaults (SSD/NPU/bus
+    specs, LOD sizes, NPU core count, scheduler policy selection).
+  - `scenarios/*.yaml` — per-experiment variables (agent placement,
+    traffic timeline, run duration).
+- **Reason:** Hardware spec changes rarely; scenarios change every run.
+  Mixing them means every experiment carries a copy of the spec, which
+  drifts. Splitting also lets a single scenario run against multiple
+  hardware configs cleanly.
+- **Alternatives considered:**
+  - Single combined YAML — rejected: drift risk and bloated diffs.
+- **Implications:** Simulator CLI takes both: `sim --config config.yaml
+  --scenario scenarios/foo.yaml`. Loaders are independent.
+- **Date:** 2026-05-05
+
+---
+
+## Phase 1 — Simulation Core
+
+### Decision: Trace output — binary + CSV
+
+- **Choice:** Trace logger emits both a compact binary stream (primary)
+  and a CSV (human-readable). CSV is the default for short runs; binary
+  is the format kept for long runs.
+- **Reason:** Long scenarios (multi-minute open-world traversal) will
+  produce trace files that are awkward to handle as CSV. Binary keeps
+  storage and write cost bounded; CSV stays available for quick eyeball
+  review and external analysis.
+- **Alternatives considered:**
+  - CSV only — rejected: file size and write throughput become
+    bottlenecks on long runs.
+  - Binary only — rejected: loses easy inspection during development.
+- **Implications:** Need a small `trace_dump` utility (C++) to convert
+  binary → CSV on demand. Schema must be versioned in the binary header
+  so old traces stay readable as the schema evolves.
+- **Date:** 2026-05-05
+
+---
+
+## Phase 8 — Multi-core NPU, Eviction, Degradation
+
+### Decision: NPU core count default = 4
+
+- **Choice:** `config.yaml` ships with `npu.cores: 4` as the default.
+- **Reason:** N=2 is too small to surface meaningful contention on the
+  shared cache; N≥8 produces noisy reports without proportional insight.
+  N=4 is the sweet spot for demonstrating eviction-policy behavior and
+  per-core fairness without overwhelming the visualization.
+- **Alternatives considered:**
+  - N=2 — rejected: contention story too weak.
+  - N=8 — rejected: report clutter, diminishing return.
+- **Implications:** All Phase 8 KPIs report per-core breakdown; tests
+  parameterize on N to ensure correctness at boundary values (1, 4, 8).
+- **Date:** 2026-05-05
+
 ### Decision: Multi-core NPU is in scope
 
 - **Choice:** Model the NPU as N independent execution units sharing a
