@@ -77,12 +77,12 @@ A run is "successful" if NeuroStream-mode beats baseline-mode on audio P99 **wit
 
 Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
-### Phase 0 — Bootstrap `[ ]`
-- [ ] Repo init, license, `.gitignore`, `README.md` skeleton
-- [ ] Build system (CMake, C++20, `yaml-cpp`, `doctest`)
-- [ ] CI stub (GitHub Actions: build + run smoke test)
-- [ ] Folder layout: `src/`, `include/`, `sim/`, `scenarios/`, `docs/`, `scripts/`
-- [ ] Top-level `config.yaml` with initial system parameters
+### Phase 0 — Bootstrap `[x]`
+- [x] Repo init, license, `.gitignore`, `README.md` skeleton
+- [x] Build system (CMake, C++20, `yaml-cpp`, `doctest`)
+- [x] CI stub (GitHub Actions: build + run smoke test)
+- [x] Folder layout: `src/`, `include/`, `sim/`, `scenarios/`, `docs/`, `scripts/`
+- [x] Top-level `config.yaml` with initial system parameters
 
 ### Phase 1 — Simulation Core `[ ]`
 - [ ] Discrete-event simulator skeleton (event-driven, μs resolution)

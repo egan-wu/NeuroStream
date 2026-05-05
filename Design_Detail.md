@@ -141,6 +141,39 @@ Cross-cutting decisions made before any phase implementation begins.
 
 ---
 
+## Phase 0 — Bootstrap
+
+### Decision: License — MIT
+
+- **Choice:** MIT License at repo root.
+- **Reason:** Maximally permissive; standard for portfolio repos;
+  removes friction for any reviewer who wants to clone and run.
+- **Alternatives considered:**
+  - Apache-2.0 — rejected: patent clause adds noise for a sim project
+    with no patentable IP.
+  - No license — rejected: defaults to "all rights reserved" which
+    discourages a reviewer from running the code.
+- **Implications:** None beyond shipping `LICENSE`.
+- **Date:** 2026-05-05
+
+### Decision: CI matrix — Ubuntu/GCC + macOS/Clang
+
+- **Choice:** GitHub Actions runs on `ubuntu-latest` (GCC) and
+  `macos-latest` (Apple Clang). Build + run smoke test on each.
+- **Reason:** macOS is the primary dev environment; Ubuntu is the
+  reviewer's likely environment. Covers the two compiler families that
+  matter without paying the MSVC tax.
+- **Alternatives considered:**
+  - Ubuntu only — rejected: dev-time regressions on macOS would be
+    invisible until local rebuild.
+  - Add Windows/MSVC — rejected: C++20 quirks in MSVC are a known time
+    sink; not worth it for a single-developer portfolio piece.
+- **Implications:** Code must stay portable between libstdc++ and
+  libc++. No GCC-specific extensions.
+- **Date:** 2026-05-05
+
+---
+
 ## Phase 1 — Simulation Core
 
 ### Decision: Trace output — binary + CSV

@@ -1,0 +1,50 @@
+# NeuroStream system configuration.
+# Hardware constants and policy defaults. Per-experiment variables live in
+# scenarios/*.yaml — see docs/scenario-schema.md (Phase 2).
+
+ssd:
+  raw_bandwidth_mbps: 5500          # PS5-class raw read bandwidth
+  effective_bandwidth_mbps: 8500    # post-Kraken effective throughput
+  decompress_ratio: 2.0             # average compression ratio
+  decompress_latency_us: 5          # per-block decompression latency
+
+bus:
+  total_bandwidth_mbps: 16000       # shared system bus bandwidth
+  transaction_overhead_us: 1        # per-transaction arbitration cost
+
+npu:
+  cores: 4                          # Phase 8: number of execution units
+  shared_cache_mb: 512              # shared weight cache size
+
+audio:
+  rate_mbps: 5
+  packet_bytes: 256
+  deadline_us: 1000                 # 1 ms hard deadline
+  priority: critical
+
+texture:
+  burst_rate_mbps: 500
+  burst_duration_ms: 100
+  priority: normal
+
+ai_weights:
+  lod0_mb: 100                      # full-resolution
+  lod1_mb: 30                       # mid-tier
+  lod2_mb: 10                       # quantized / behavioral-only
+  priority: high
+
+scheduler:
+  policy: qos                       # one of: fifo | qos
+  qos_weights:
+    critical: 8
+    high: 4
+    normal: 1
+
+dma:
+  path: p2p                         # one of: bounce | p2p
+
+eviction:
+  policy: distance_lru              # Phase 8: distance-weighted LRU
+
+degradation:
+  weight_load_timeout_ms: 50        # fall back to previous LOD on timeout
