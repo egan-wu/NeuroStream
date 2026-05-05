@@ -1,0 +1,37 @@
+ssd:
+  raw_bandwidth_mbps: 5500
+  effective_bandwidth_mbps: 8500
+  decompress_ratio: 2.0
+  # decompress_latency_us intentionally omitted
+bus:
+  total_bandwidth_mbps: 16000
+  transaction_overhead_us: 1
+npu:
+  cores: 4
+  shared_cache_mb: 512
+audio:
+  rate_mbps: 5
+  packet_bytes: 256
+  deadline_us: 1000
+  priority: critical
+texture:
+  burst_rate_mbps: 500
+  burst_duration_ms: 100
+  priority: normal
+ai_weights:
+  lod0_mb: 100
+  lod1_mb: 30
+  lod2_mb: 10
+  priority: high
+scheduler:
+  policy: qos
+  qos_weights:
+    critical: 8
+    high: 4
+    normal: 1
+dma:
+  path: p2p
+eviction:
+  policy: distance_lru
+degradation:
+  weight_load_timeout_ms: 50

@@ -34,10 +34,12 @@ FetchContent_Declare(doctest
     GIT_SHALLOW    TRUE)
 FetchContent_MakeAvailable(doctest)
 
-add_library(neurostream_core INTERFACE)
-target_include_directories(neurostream_core INTERFACE
+add_library(neurostream_core
+    src/config.cpp
+    src/trace.cpp)
+target_include_directories(neurostream_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(neurostream_core INTERFACE yaml-cpp::yaml-cpp)
+target_link_libraries(neurostream_core PUBLIC yaml-cpp::yaml-cpp)
 
 add_executable(neurostream src/main.cpp)
 target_link_libraries(neurostream PRIVATE neurostream_core)

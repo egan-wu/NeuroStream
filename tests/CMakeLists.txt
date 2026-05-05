@@ -1,3 +1,13 @@
-add_executable(smoke_test smoke_test.cpp)
-target_link_libraries(smoke_test PRIVATE neurostream_core doctest::doctest)
-add_test(NAME smoke_test COMMAND smoke_test)
+function(ns_add_test name)
+    add_executable(${name} ${name}.cpp)
+    target_link_libraries(${name} PRIVATE neurostream_core doctest::doctest)
+    add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+ns_add_test(smoke_test)
+ns_add_test(event_queue_test)
+ns_add_test(config_test)
+ns_add_test(trace_test)
+
+target_compile_definitions(config_test PRIVATE
+    NS_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")

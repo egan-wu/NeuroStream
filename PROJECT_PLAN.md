@@ -84,12 +84,12 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] Folder layout: `src/`, `include/`, `sim/`, `scenarios/`, `docs/`, `scripts/`
 - [x] Top-level `config.yaml` with initial system parameters
 
-### Phase 1 — Simulation Core `[ ]`
-- [ ] Discrete-event simulator skeleton (event-driven, μs resolution)
-- [ ] `Clock`, `Event`, `EventQueue` primitives
-- [ ] `Config` loader (YAML → typed struct, injectable for tests)
-- [ ] Trace logger (binary + CSV exporter)
-- [ ] Unit-test harness (`doctest`)
+### Phase 1 — Simulation Core `[x]`
+- [x] Discrete-event simulator skeleton (event-driven, μs resolution)
+- [x] `Clock`, `Event`, `EventQueue` primitives (with tombstone cancellation)
+- [x] `Config` loader (YAML → typed struct, fail-fast on missing fields)
+- [x] Trace logger (binary + CSV, schema v1, streaming writes)
+- [x] Unit-test harness (`doctest`)
 
 ### Phase 2 — Traffic Injectors + Dumb Predictor `[ ]`
 - [ ] `AudioTrafficGen` — steady 5 MB/s, 256B packets, hard deadline

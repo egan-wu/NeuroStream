@@ -176,6 +176,61 @@ Cross-cutting decisions made before any phase implementation begins.
 
 ## Phase 1 — Simulation Core
 
+### Decision: Event cancellation via tombstones
+
+- **Choice:** `EventQueue` exposes a `cancel()` API, but cancellation
+  is implemented by flipping an `alive` flag on the event entry rather
+  than removing it from the heap. The main loop checks the flag on pop
+  and skips dead entries.
+- **Reason:** Real cancellation (heap-remove) needs O(log n) erase by
+  arbitrary handle and bookkeeping for index-in-heap. Tombstones get
+  the same external behavior with a `std::shared_ptr<bool>` and a few
+  extra bytes per event. Industry-standard pattern in DES libraries.
+- **Use cases this enables:** predictor invalidating stale prefetches
+  on view-frustum change, LOD upgrade overriding a pending lower-tier
+  load, timeout alarms cancelled when the load completes early.
+- **Alternatives considered:**
+  - True heap-remove via `std::set` keyed on `(time, id)` — rejected:
+    higher constant factor and more complex API.
+  - No cancellation at all — rejected: forces awkward workarounds in
+    Phases 6 (predictor) and 8 (degradation).
+- **Implications:** Cancelled events still occupy heap memory until
+  popped. If a future profiler shows zombie buildup, swap the impl
+  without changing the API.
+- **Date:** 2026-05-05
+
+### Decision: Time type — `int64_t` microseconds
+
+- **Choice:** `using Time = std::int64_t;` representing microseconds.
+  No `std::chrono` types in the public API.
+- **Reason:** Trace records, log lines, and YAML inputs all express
+  time as plain integers; `chrono` adds compile cost and verbose
+  printing for no semantic gain at simulator scope.
+- **Alternatives considered:**
+  - `std::chrono::microseconds` — rejected: harder to print, harder
+    to serialize, no type-safety benefit since the whole sim is in μs.
+  - `double` seconds — rejected: floating-point ordering hazards in
+    the priority queue.
+- **Implications:** A signed 64-bit μs counter wraps after ~292,000
+  years. Negative times are reserved for "invalid"/sentinel values.
+- **Date:** 2026-05-05
+
+### Decision: Config loader — fail-fast on missing fields
+
+- **Choice:** YAML loader throws `std::runtime_error` (or a typed
+  `ConfigError`) on any missing or malformed field. No silent
+  defaults inside the loader.
+- **Reason:** Silent defaults hide config drift bugs that are nearly
+  impossible to debug from KPI noise. If a default is desired, it
+  goes into the shipped `config.yaml` explicitly so it is reviewable.
+- **Alternatives considered:**
+  - Default-on-missing — rejected: hides typos, hides forgotten
+    fields, hides schema drift between branches.
+- **Implications:** Schema changes require updating both the loader
+  and any test fixtures in lockstep. Failure messages must name the
+  missing field path.
+- **Date:** 2026-05-05
+
 ### Decision: Trace output — binary + CSV
 
 - **Choice:** Trace logger emits both a compact binary stream (primary)
@@ -192,6 +247,46 @@ Cross-cutting decisions made before any phase implementation begins.
 - **Implications:** Need a small `trace_dump` utility (C++) to convert
   binary → CSV on demand. Schema must be versioned in the binary header
   so old traces stay readable as the schema evolves.
+- **Date:** 2026-05-05
+
+### Decision: Trace record schema v1
+
+- **Choice:** Fixed 32-byte record:
+  ```
+  int64  timestamp_us
+  uint32 source_id          // injector or scheduler entity id
+  uint8  event_type         // enum (issue / arrive / complete / drop / ...)
+  uint8  qos_tag            // critical / high / normal
+  uint16 _reserved
+  uint32 size_bytes
+  uint32 latency_us         // 0 for issue events
+  uint64 transaction_id     // monotonically assigned, joins issue↔complete
+  ```
+  Binary file starts with a `TraceHeader { magic[4]="NSTR"; uint32 version=1;
+  uint32 record_size=32; uint32 _reserved=0 }`.
+- **Reason:** `transaction_id` lets analysis tools join issue and
+  completion records to derive end-to-end latency. Fixed-size records
+  are append-only friendly and trivial to mmap or parse.
+- **Alternatives considered:**
+  - Variable-size records with TLV — rejected: unnecessary at this
+    schema simplicity; can be added in v2 if string fields appear.
+- **Implications:** Schema version bumps require updating the header,
+  the writer, and any reader. Analysis assumes little-endian host
+  (true on x86_64 and arm64).
+- **Date:** 2026-05-05
+
+### Decision: Streaming trace writes
+
+- **Choice:** Trace records are written to disk as they are produced,
+  not accumulated in memory until shutdown.
+- **Reason:** A multi-minute open-world scenario can emit millions of
+  records; buffering them all would push RAM into multi-GB territory
+  and lose data on a crash.
+- **Alternatives considered:**
+  - Batch dump at end-of-run — rejected: RAM pressure and crash loss.
+- **Implications:** `TraceWriter` owns the output streams via RAII;
+  flush-on-destroy is sufficient for normal shutdown. Tests that
+  inspect a trace must close the writer before reading.
 - **Date:** 2026-05-05
 
 ---
