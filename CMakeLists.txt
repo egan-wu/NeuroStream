@@ -36,7 +36,10 @@ FetchContent_MakeAvailable(doctest)
 
 add_library(neurostream_core
     src/config.cpp
-    src/trace.cpp)
+    src/trace.cpp
+    src/injector.cpp
+    src/scenario.cpp
+    src/predictor.cpp)
 target_include_directories(neurostream_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(neurostream_core PUBLIC yaml-cpp::yaml-cpp)

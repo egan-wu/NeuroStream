@@ -91,13 +91,13 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] Trace logger (binary + CSV, schema v1, streaming writes)
 - [x] Unit-test harness (`doctest`)
 
-### Phase 2 — Traffic Injectors + Dumb Predictor `[ ]`
-- [ ] `AudioTrafficGen` — steady 5 MB/s, 256B packets, hard deadline
-- [ ] `TextureTrafficGen` — bursty up to 500 MB/s, large blocks
-- [ ] `AIWeightRequest` — on-demand prefetch, variable size
-- [ ] Each tagged with `{priority, deadline, size}`
-- [ ] `Predictor` interface + scripted/dumb implementation (real one in Phase 6)
-- [ ] Scenario YAML schema documented in `docs/scenario-schema.md`
+### Phase 2 — Traffic Injectors + Dumb Predictor `[x]`
+- [x] `AudioTrafficGen` — steady 5 MB/s, 256B packets, hard deadline
+- [x] `TextureTrafficGen` — bursty up to 500 MB/s, 256 KB blocks
+- [x] `AIWeightInjector` — on-demand prefetch, LOD-sized
+- [x] Each tagged with `{priority, deadline, size}`
+- [x] `Predictor` interface + `ScriptedPredictor` (real one in Phase 6)
+- [x] Scenario YAML schema documented in `docs/scenario-schema.md`
 
 ### Phase 3 — Pillar A: Virtual AXI Scheduler `[ ]`
 - [ ] Baseline FIFO scheduler (control group)

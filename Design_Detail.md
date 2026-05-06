@@ -291,6 +291,115 @@ Cross-cutting decisions made before any phase implementation begins.
 
 ---
 
+## Phase 2 — Traffic Injectors + Dumb Predictor
+
+### Decision: Injectors use the push model
+
+- **Choice:** Each injector is an event-driven actor. On `start()` it
+  schedules its first event into the shared `EventQueue`; each handler
+  produces a `Transaction`, hands it to a `TransactionSink`, and
+  schedules its successor.
+- **Reason:** Aligns with the discrete-event core — injectors are
+  peers to every other event-producing entity. Burst behavior maps to
+  "schedule the next event sooner". Multi-injector concurrency is
+  trivially independent. Phase 3 preemption is just "insert a higher-
+  priority event ahead of the queued ones", which falls out of the
+  same model.
+- **Alternatives considered:**
+  - Pull model (driver polls each injector for `peek_next()` /
+    `take_next()`) — rejected: forces a parallel driver loop, awkward
+    multi-injector tie-breaking, and an additional state machine per
+    injector for chained behavior. The "fewer events in heap" win is
+    immaterial at our scale.
+- **Implications:** Sinks must accept transactions synchronously
+  (cannot block the injector). Backpressure, if ever needed, lives
+  inside the sink as queueing — not in the injector.
+- **Date:** 2026-05-05
+
+### Decision: TransactionSink interface decouples producers from scheduler
+
+- **Choice:** Phase 2 ships with a `TransactionSink` abstract base
+  with one method `accept(const Transaction&)`. A `TraceSink`
+  implementation writes each transaction as an `Issue` record. Phase 3
+  swaps the sink for a real scheduler without touching injectors.
+- **Reason:** Lets Phase 2 demonstrate end-to-end traffic flow before
+  the scheduler exists, and freezes the contract that Phase 3 must
+  honor.
+- **Alternatives considered:**
+  - Inject directly into a global queue — rejected: ties injectors to
+    a specific scheduler implementation.
+- **Implications:** All injectors take `Sink&` at start. Tests use a
+  recording sink that captures transactions in a vector for
+  assertion.
+- **Date:** 2026-05-05
+
+### Decision: Mixed scenario time model — declarative streams + absolute events
+
+- **Choice:** Scenario YAML has two sections.
+  - **Declarative streams** for steady traffic: `audio: { enabled: true }`
+    runs from 0 to `duration_ms` at the rate set in `config.yaml`.
+  - **Absolute-time event lists** for triggered behavior:
+    `texture_bursts: [{ at_ms, rate_mbps, duration_ms }]` and
+    `weight_prefetches: [{ at_ms, npc_id, lod }]`.
+- **Reason:** Steady streams are tedious to express as event lists;
+  one-shot bursts are tedious to express as steady streams. Splitting
+  the two keeps each YAML section readable.
+- **Alternatives considered:**
+  - All-declarative — rejected: bursts become awkward.
+  - All-event — rejected: audio would need thousands of entries.
+- **Implications:** Scenario loader handles both shapes. Scenario
+  schema is documented in `docs/scenario-schema.md`.
+- **Date:** 2026-05-05
+
+### Decision: Scripted predictor in Phase 2
+
+- **Choice:** The Phase 2 `Predictor` reads `weight_prefetches` from
+  the scenario and schedules each as a one-shot weight request via
+  `AIWeightInjector`. No spatial reasoning yet.
+- **Reason:** Lets Phase 3–5 run with realistic weight traffic
+  patterns. The frustum-aware predictor in Phase 6 simply replaces
+  the implementation behind the same interface.
+- **Alternatives considered:**
+  - Defer all prediction to Phase 6 — rejected: leaves Phase 3–5
+    without weight traffic.
+- **Implications:** `Predictor` is an abstract base; both the
+  scripted impl (Phase 2) and the spatial impl (Phase 6) realize it.
+- **Date:** 2026-05-05
+
+### Decision: Scenario loader is fail-fast, like config
+
+- **Choice:** Missing required fields in scenario YAML throw
+  `ScenarioError`. The loader uses the same `require()` / `as<T>()`
+  pattern as `load_config()`.
+- **Reason:** Consistency with config loader. Silent defaults mask
+  experiment drift between scenarios.
+- **Alternatives considered:**
+  - Optional fields with defaults — rejected: same reasoning as
+    config decision.
+- **Implications:** Each scenario must be complete on its own. The
+  test suite includes a malformed-scenario fixture verifying the
+  failure mode.
+- **Date:** 2026-05-05
+
+### Decision: Texture streaming block size — 256 KB, in `config.yaml`
+
+- **Choice:** Texture bursts emit 256 KB blocks. The size lives in
+  `config.yaml` as `texture.block_bytes` because it represents a
+  hardware-level streaming granularity, not an experiment knob.
+- **Reason:** With 500 MB/s × 100 ms = 50 MB per burst, 256 KB blocks
+  yield ~190 transactions per burst — enough to exercise the
+  scheduler without flooding the trace.
+- **Alternatives considered:**
+  - 64 KB — rejected: ~760 events per burst, noisy traces.
+  - 1 MB — rejected: ~50 events per burst, scheduler decisions
+    happen too coarsely.
+- **Implications:** All texture transactions carry size = 256 KB.
+  Audio packets remain 256 B; weight transactions remain LOD-sized
+  blobs.
+- **Date:** 2026-05-05
+
+---
+
 ## Phase 8 — Multi-core NPU, Eviction, Degradation
 
 ### Decision: NPU core count default = 4

@@ -1,0 +1,4 @@
+name: bad
+# duration_ms intentionally omitted
+audio:
+  enabled: true

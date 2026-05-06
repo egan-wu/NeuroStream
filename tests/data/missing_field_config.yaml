@@ -17,6 +17,7 @@ audio:
 texture:
   burst_rate_mbps: 500
   burst_duration_ms: 100
+  block_bytes: 262144
   priority: normal
 ai_weights:
   lod0_mb: 100

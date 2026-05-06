@@ -32,6 +32,7 @@ struct AudioConfig {
 struct TextureConfig {
     int         burst_rate_mbps;
     int         burst_duration_ms;
+    int         block_bytes;
     std::string priority;
 };
 

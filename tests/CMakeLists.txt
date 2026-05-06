@@ -8,6 +8,10 @@ ns_add_test(smoke_test)
 ns_add_test(event_queue_test)
 ns_add_test(config_test)
 ns_add_test(trace_test)
+ns_add_test(injector_test)
+ns_add_test(scenario_test)
 
 target_compile_definitions(config_test PRIVATE
+    NS_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+target_compile_definitions(scenario_test PRIVATE
     NS_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")

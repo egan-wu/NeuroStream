@@ -63,6 +63,7 @@ Config load_config(const std::filesystem::path& path) {
     auto tex = require(root, "texture", "");
     c.texture.burst_rate_mbps    = as<int>(tex, "burst_rate_mbps", "texture");
     c.texture.burst_duration_ms  = as<int>(tex, "burst_duration_ms", "texture");
+    c.texture.block_bytes        = as<int>(tex, "block_bytes", "texture");
     c.texture.priority           = as<std::string>(tex, "priority", "texture");
 
     auto aw = require(root, "ai_weights", "");
