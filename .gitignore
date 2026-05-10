@@ -27,10 +27,14 @@ Makefile
 
 # Trace / run output
 *.csv
+*.csv.*
 *.bin
+*.bin.*
 *.trace
 results/
 runs/
+run.bin*
+run.csv*
 
 # IDE
 .vscode/
