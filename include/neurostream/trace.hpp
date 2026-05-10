@@ -9,11 +9,12 @@
 namespace neurostream {
 
 enum class EventType : std::uint8_t {
-    Issue    = 0,
-    Arrive   = 1,
-    Complete = 2,
-    Drop     = 3,
-    Cancel   = 4,
+    Issue        = 0,
+    Arrive       = 1,
+    ServiceStart = 2,
+    Complete     = 3,
+    Drop         = 4,
+    Cancel       = 5,
 };
 
 enum class QosTag : std::uint8_t {

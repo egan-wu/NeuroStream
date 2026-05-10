@@ -5,11 +5,12 @@ namespace neurostream {
 
 std::string_view to_string(EventType e) noexcept {
     switch (e) {
-        case EventType::Issue:    return "issue";
-        case EventType::Arrive:   return "arrive";
-        case EventType::Complete: return "complete";
-        case EventType::Drop:     return "drop";
-        case EventType::Cancel:   return "cancel";
+        case EventType::Issue:        return "issue";
+        case EventType::Arrive:       return "arrive";
+        case EventType::ServiceStart: return "service_start";
+        case EventType::Complete:     return "complete";
+        case EventType::Drop:         return "drop";
+        case EventType::Cancel:       return "cancel";
     }
     return "?";
 }

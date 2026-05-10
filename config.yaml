@@ -36,10 +36,11 @@ ai_weights:
 
 scheduler:
   policy: qos                       # one of: fifo | qos
-  qos_weights:
-    critical: 8
-    high: 4
-    normal: 1
+  quantum_us: 100                   # re-arbitration granularity
+  critical_rate_limit_pct: 5        # token-bucket cap on critical class
+  bulk_weights:                     # weighted-fair within bulk tier
+    high: 2                         # weight class (AI weights)
+    normal: 1                       # texture class
 
 dma:
   path: p2p                         # one of: bounce | p2p

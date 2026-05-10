@@ -33,7 +33,10 @@ TEST_CASE("loads a valid config and parses every field") {
     CHECK(cfg.audio.deadline_us == 1000);
 
     CHECK(cfg.scheduler.policy == "qos");
-    CHECK(cfg.scheduler.qos_weights.critical == 8);
+    CHECK(cfg.scheduler.quantum_us == 100);
+    CHECK(cfg.scheduler.critical_rate_limit_pct == 5);
+    CHECK(cfg.scheduler.bulk_weights.high == 2);
+    CHECK(cfg.scheduler.bulk_weights.normal == 1);
     CHECK(cfg.dma.path == "p2p");
     CHECK(cfg.eviction.policy == "distance_lru");
     CHECK(cfg.degradation.weight_load_timeout_ms == 50);

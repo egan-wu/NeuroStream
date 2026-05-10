@@ -43,15 +43,16 @@ struct AiWeightsConfig {
     std::string priority;
 };
 
-struct QosWeights {
-    int critical;
+struct BulkWeights {
     int high;
     int normal;
 };
 
 struct SchedulerConfig {
-    std::string policy;        // "fifo" | "qos"
-    QosWeights  qos_weights;
+    std::string  policy;                   // "fifo" | "qos"
+    int          quantum_us;               // re-arbitration granularity
+    int          critical_rate_limit_pct;  // 0–100, % of bus bandwidth
+    BulkWeights  bulk_weights;
 };
 
 struct DmaConfig {

@@ -73,11 +73,12 @@ Config load_config(const std::filesystem::path& path) {
     c.ai_weights.priority = as<std::string>(aw, "priority", "ai_weights");
 
     auto sch = require(root, "scheduler", "");
-    c.scheduler.policy = as<std::string>(sch, "policy", "scheduler");
-    auto qw = require(sch, "qos_weights", "scheduler");
-    c.scheduler.qos_weights.critical = as<int>(qw, "critical", "scheduler.qos_weights");
-    c.scheduler.qos_weights.high     = as<int>(qw, "high", "scheduler.qos_weights");
-    c.scheduler.qos_weights.normal   = as<int>(qw, "normal", "scheduler.qos_weights");
+    c.scheduler.policy                  = as<std::string>(sch, "policy", "scheduler");
+    c.scheduler.quantum_us              = as<int>(sch, "quantum_us", "scheduler");
+    c.scheduler.critical_rate_limit_pct = as<int>(sch, "critical_rate_limit_pct", "scheduler");
+    auto bw = require(sch, "bulk_weights", "scheduler");
+    c.scheduler.bulk_weights.high   = as<int>(bw, "high", "scheduler.bulk_weights");
+    c.scheduler.bulk_weights.normal = as<int>(bw, "normal", "scheduler.bulk_weights");
 
     auto dma = require(root, "dma", "");
     c.dma.path = as<std::string>(dma, "path", "dma");

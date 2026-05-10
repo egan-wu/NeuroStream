@@ -4,18 +4,91 @@
 #include "neurostream/injector.hpp"
 #include "neurostream/predictor.hpp"
 #include "neurostream/scenario.hpp"
+#include "neurostream/scheduler.hpp"
 #include "neurostream/trace.hpp"
-#include "neurostream/trace_sink.hpp"
+#include <algorithm>
 #include <cstdio>
 #include <string>
 
 using namespace neurostream;
+
+namespace {
+
+struct RunResult {
+    Scheduler::Kpi kpi;
+    Time           wall_clock_us = 0;
+};
+
+RunResult run_one(const Config& cfg_in, const Scenario& scn,
+                  const std::string& policy,
+                  const std::string& trace_bin, const std::string& trace_csv) {
+    Config cfg = cfg_in;
+    cfg.scheduler.policy = policy;
+
+    Clock       clock;
+    EventQueue  q;
+    TraceWriter tw(trace_bin, trace_csv);
+
+    auto sched = make_scheduler(cfg, clock, q, &tw);
+
+    AudioTrafficGen   audio(cfg.audio);
+    TextureTrafficGen texture(cfg.texture);
+    AIWeightInjector  weights(cfg.ai_weights);
+
+    Time stop_at_us = static_cast<Time>(scn.duration_ms) * 1000;
+
+    if (scn.audio_enabled) audio.start(clock, q, *sched, stop_at_us);
+    for (const auto& b : scn.texture_bursts) {
+        texture.schedule_burst(clock, q, *sched,
+                               static_cast<Time>(b.at_ms) * 1000,
+                               b.rate_mbps, b.duration_ms);
+    }
+    ScriptedPredictor predictor(scn);
+    predictor.start(clock, q, weights, *sched);
+
+    while (q.pop_and_run(clock)) {}
+
+    RunResult r;
+    r.kpi           = sched->kpi();
+    r.wall_clock_us = clock.now();
+    return r;
+}
+
+Time p99(std::vector<Time>& v) {
+    if (v.empty()) return 0;
+    std::sort(v.begin(), v.end());
+    std::size_t i = static_cast<std::size_t>(0.99 * static_cast<double>(v.size()));
+    if (i >= v.size()) i = v.size() - 1;
+    return v[i];
+}
+
+void print_kpi(const char* label, Scheduler::Kpi kpi) {
+    Time p = p99(kpi.audio_lat_samples);
+    std::printf("  [%s] issued=%llu completed=%llu dropped=%llu | "
+                "audio_completed=%llu audio_dropped=%llu | "
+                "audio_lat_us mean=%.1f max=%lld p99=%lld | "
+                "weight_lat_us max=%lld\n",
+                label,
+                (unsigned long long)kpi.issued,
+                (unsigned long long)kpi.completed,
+                (unsigned long long)kpi.dropped,
+                (unsigned long long)kpi.audio_completed,
+                (unsigned long long)kpi.audio_dropped,
+                kpi.audio_lat_mean,
+                (long long)kpi.audio_lat_max,
+                (long long)p,
+                (long long)kpi.weight_lat_max);
+}
+
+}
 
 int main(int argc, char** argv) {
     std::string config_path   = "config.yaml";
     std::string scenario_path = "scenarios/demo.yaml";
     std::string trace_bin     = "run.bin";
     std::string trace_csv     = "run.csv";
+    std::string policy        = "";   // empty = use config; "fifo"/"qos" overrides; "ab" runs both
+    bool        ab_mode       = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -23,6 +96,8 @@ int main(int argc, char** argv) {
         else if (a == "--scenario" && i + 1 < argc) scenario_path = argv[++i];
         else if (a == "--trace-bin" && i + 1 < argc) trace_bin = argv[++i];
         else if (a == "--trace-csv" && i + 1 < argc) trace_csv = argv[++i];
+        else if (a == "--policy" && i + 1 < argc) policy = argv[++i];
+        else if (a == "--ab") ab_mode = true;
     }
 
     Config   cfg;
@@ -35,35 +110,22 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::printf("NeuroStream — Phase 2 traffic\n");
-    std::printf("  scenario: %s (%d ms)\n", scn.name.c_str(), scn.duration_ms);
-    std::printf("  npu cores: %d, scheduler: %s\n",
-                cfg.npu.cores, cfg.scheduler.policy.c_str());
+    std::printf("NeuroStream — Phase 3 scheduler\n");
+    std::printf("  scenario: %s (%d ms), npu cores: %d\n",
+                scn.name.c_str(), scn.duration_ms, cfg.npu.cores);
 
-    Clock      clock;
-    EventQueue q;
-    TraceWriter tw(trace_bin, trace_csv);
-    TraceSink   sink(tw);
-
-    AudioTrafficGen   audio(cfg.audio);
-    TextureTrafficGen texture(cfg.texture);
-    AIWeightInjector  weights(cfg.ai_weights);
-
-    Time stop_at_us = static_cast<Time>(scn.duration_ms) * 1000;
-
-    if (scn.audio_enabled) audio.start(clock, q, sink, stop_at_us);
-    for (const auto& b : scn.texture_bursts) {
-        texture.schedule_burst(clock, q, sink,
-                               static_cast<Time>(b.at_ms) * 1000,
-                               b.rate_mbps, b.duration_ms);
+    if (ab_mode) {
+        auto fifo = run_one(cfg, scn, "fifo", trace_bin + ".fifo", trace_csv + ".fifo");
+        auto qos  = run_one(cfg, scn, "qos",  trace_bin + ".qos",  trace_csv + ".qos");
+        std::printf("A/B comparison:\n");
+        print_kpi("fifo", fifo.kpi);
+        print_kpi("qos ", qos.kpi);
+    } else {
+        std::string p = policy.empty() ? cfg.scheduler.policy : policy;
+        auto r = run_one(cfg, scn, p, trace_bin, trace_csv);
+        std::printf("policy=%s wall=%lld us\n", p.c_str(), (long long)r.wall_clock_us);
+        print_kpi(p.c_str(), r.kpi);
+        std::printf("trace: %s + %s\n", trace_bin.c_str(), trace_csv.c_str());
     }
-    ScriptedPredictor predictor(scn);
-    predictor.start(clock, q, weights, sink);
-
-    while (q.pop_and_run(clock)) {}
-
-    std::printf("emitted %llu transactions over %lld us\n",
-                (unsigned long long)sink.count(), (long long)clock.now());
-    std::printf("trace: %s + %s\n", trace_bin.c_str(), trace_csv.c_str());
     return 0;
 }

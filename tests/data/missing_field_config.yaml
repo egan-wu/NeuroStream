@@ -26,9 +26,10 @@ ai_weights:
   priority: high
 scheduler:
   policy: qos
-  qos_weights:
-    critical: 8
-    high: 4
+  quantum_us: 100
+  critical_rate_limit_pct: 5
+  bulk_weights:
+    high: 2
     normal: 1
 dma:
   path: p2p

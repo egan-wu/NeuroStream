@@ -60,7 +60,26 @@ require crossing one, stop and ask before proceeding.
 - `doctest` for unit tests.
 - No Boost, no SystemC, no Python in the build path.
 
-### 5. Commit hygiene
+### 5. Architectural choice presentation (mandatory)
+
+When presenting an architectural or design choice to the user, always:
+
+1. **State what real commercial systems do** — name the convention used
+   in production hardware/software (PS5 I/O complex, ARM AMBA AXI/CHI,
+   Linux block layer, NVMe, GPU drivers, etc.). Do not present options
+   in a vacuum.
+2. **Briefly explain the deviation cost** for each rejected option —
+   what fidelity is lost, what bug class becomes invisible, what
+   real-world behavior the simulator would fail to reproduce. One line
+   per option is enough.
+3. **Make a recommendation** grounded in (1) and (2), not just
+   "simplicity".
+
+Goal: every design decision in this repo is defensible against an
+interviewer who asks "why did you do it this way and not the way real
+silicon does it?"
+
+### 6. Commit hygiene
 
 - One logical change per commit.
 - Commit message: imperative subject under 70 chars, body explains *why*.

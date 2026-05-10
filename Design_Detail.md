@@ -400,6 +400,114 @@ Cross-cutting decisions made before any phase implementation begins.
 
 ---
 
+## Phase 3 — Virtual AXI Bus Scheduler
+
+### Decision: Quantum-based service model, 100 μs quantum
+
+- **Choice:** Bus services one transaction at a time but in fixed
+  100 μs slices. After each slice the scheduler re-arbitrates. A
+  transaction smaller than one slice completes early.
+- **Real-system reference:** AXI bursts are themselves uninterruptible,
+  but production DMA engines (incl. PS5's I/O complex) issue rapid
+  short bursts (~64–256 B each) so the arbiter re-picks frequently.
+  100 μs quantum models the "effective re-arbitration granularity"
+  this produces, without simulating individual bursts.
+- **Alternatives considered:**
+  - Whole-transaction service (no preemption) — rejected: a 100 MB
+    weight (12.5 ms @ 8 GB/s) would block audio entirely. Inflates
+    baseline badness 5–10× vs reality.
+  - Beat-level (RTL) — rejected: violates L2 abstraction; simulates
+    pipeline / OoO completion irrelevant to protocol design.
+- **Implications:** Quantum boundary is the only preemption point.
+  All transactions carry `bytes_remaining`; partial-service is
+  re-queued. P99 audio latency error vs real PS5 expected < 20%.
+- **Date:** 2026-05-06
+
+### Decision: Two-tier QoS — strict critical + DRR bulk
+
+- **Choice:** Two-tier scheduling.
+  - **Tier 1 (Critical):** strict priority, but rate-limited to 5 % of
+    bus bandwidth via a token bucket. Cannot starve Tier 2 because
+    the limit caps it.
+  - **Tier 2 (Bulk):** weighted fair queueing across `high` and
+    `normal` classes. Picks the class with smallest
+    `bytes_served / weight` (virtual-time). Default weights
+    `high : normal = 2 : 1`.
+- **Real-system reference:** ARM AMBA QoS guidance, Intel LTR, and
+  modern NoC designs all warn that pure strict priority starves; the
+  industry pattern is "strict for tiny rate-limited critical class +
+  fair-share for bulk". PS5's 6-level I/O priority operates the same
+  way (audio/control vs. asset streaming).
+- **Weight rationale:** 2:1 reflects "weight loads have soft deadlines,
+  texture is best-effort". Numbers derived from "guarantee high ≥ 1
+  GB/s, normal ≥ 4 GB/s of remaining bus" rather than picked at
+  random — see Phase 9 for tuning.
+- **Alternatives considered:**
+  - B1 strict priority only — rejected: starvation risk; not what
+    real silicon does.
+  - B2 pure DRR / WFQ — rejected: critical audio packets would queue
+    behind bulk transactions and blow their deadlines.
+- **Implications:** `config.yaml` `scheduler.qos_weights` replaced
+  with `critical_rate_limit_pct` + `bulk_weights {high, normal}`.
+  Token bucket state lives inside `QoSScheduler`.
+- **Date:** 2026-05-06
+
+### Decision: Single serialized bus
+
+- **Choice:** One logical bus, one transaction in service at a time
+  at full `total_bandwidth_mbps`. No parallel lanes in Phase 3.
+- **Real-system reference:** PS5 I/O complex bottleneck is the SSD
+  read channel; downstream fan-out (GDDR6, NPU, coherency) is wider
+  but the ingress is single-channel. Modeling the bottleneck is what
+  matters.
+- **Alternatives considered:**
+  - Parallel R/W lanes — rejected for Phase 3 (read-dominated
+    traffic). Tracked in PROJECT_PLAN.md backlog for Phase 5 pickup.
+  - N independent lanes — rejected: hides bandwidth contention,
+    making Baseline look better than it is.
+- **Implications:** Service time = `size / bus_bandwidth`. No
+  read/write distinction yet. Phase 5 revisits.
+- **Date:** 2026-05-06
+
+### Decision: Trace milestone events — 5 types
+
+- **Choice:** Extend `EventType` to {Issue, Arrive, ServiceStart,
+  Complete, Drop}. No per-quantum events. Each transaction's life
+  produces 3–4 records (Issue→Arrive→ServiceStart→Complete, or
+  Issue→Arrive→Drop).
+- **Real-system reference:** Linux blktrace records Q/I/D/C, ARM
+  CoreSight does similar. This is the standard IOPS-profiling
+  vocabulary; scheduling KPIs (queueing latency, service time,
+  end-to-end) all derive from joining these milestones by
+  `transaction_id`.
+- **Alternatives considered:**
+  - Issue + Complete only — rejected: cannot distinguish "blocked in
+    queue" from "slow transfer".
+  - Per-quantum records — rejected: 100 MB weight = 125 quantums =
+    trace bloat; quantum-level data not used by any KPI.
+- **Implications:** `Drop` only emitted for transactions whose
+  `deadline > 0` and is missed (audio). KPI extraction logic in
+  Phase 9 joins by `transaction_id`.
+- **Date:** 2026-05-06
+
+### Decision: A/B comparison via `--policy` CLI flag
+
+- **Choice:** `neurostream` accepts `--policy {fifo|qos}`. Same
+  scenario can be run with each policy producing separate trace
+  files. A `--ab` flag runs both back-to-back and prints a KPI diff
+  table.
+- **Real-system reference:** Production schedulers ship with
+  multiple policies behind a runtime knob (`/sys/block/.../queue/scheduler`
+  on Linux). Same pattern.
+- **Alternatives considered:**
+  - Two binaries — rejected: code drift risk.
+  - Compile-time policy template — rejected: kills A/B ergonomics.
+- **Implications:** `Scheduler` is an abstract base. `FIFOScheduler`
+  and `QoSScheduler` implement it. Selected at runtime.
+- **Date:** 2026-05-06
+
+---
+
 ## Phase 8 — Multi-core NPU, Eviction, Degradation
 
 ### Decision: NPU core count default = 4

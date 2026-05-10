@@ -99,12 +99,12 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] `Predictor` interface + `ScriptedPredictor` (real one in Phase 6)
 - [x] Scenario YAML schema documented in `docs/scenario-schema.md`
 
-### Phase 3 — Pillar A: Virtual AXI Scheduler `[ ]`
-- [ ] Baseline FIFO scheduler (control group)
-- [ ] QoS-aware weighted round-robin
-- [ ] Priority preemption with deadline awareness
-- [ ] Bandwidth budget per QoS class
-- [ ] Compare-mode switch (FIFO vs QoS) for A/B reports
+### Phase 3 — Pillar A: Virtual AXI Scheduler `[x]`
+- [x] Baseline FIFO scheduler (control group)
+- [x] QoS-aware weighted round-robin (virtual-time WFQ on bulk classes)
+- [x] Priority preemption with deadline awareness (quantum-based, 100 μs)
+- [x] Bandwidth budget per QoS class (token-bucket on Critical, 5%)
+- [x] Compare-mode switch via `--policy` and `--ab` for A/B reports
 
 ### Phase 4 — Pillar B: Weight LOD Manager `[ ]`
 - [ ] Define LOD tiers (LOD0=100MB, LOD1=30MB, LOD2=10MB)
@@ -153,6 +153,21 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [ ] Design rationale doc — why each policy chosen (`docs/rationale.md`)
 - [ ] One-page summary tailored to SIE audience (`docs/sie-pitch.md`)
 - [ ] Final README with quickstart and result snapshots
+
+---
+
+## Backlog / Deferred Enhancements
+
+Items raised during design that we decided **not** to do now but want
+revisited later. Each entry names the phase that would pick it up.
+
+- **Separate read / write channels on the bus** — real AXI/CHI runs
+  read and write on independent channels (so concurrent R+W don't
+  block each other). Phase 3 ships with a single serialized bus
+  because Phase 3 traffic is read-dominated. Phase 5 (Zero-Copy DMA)
+  introduces the SSD→NPU path, at which point splitting AR/AW
+  channels becomes meaningful for the zero-copy story. **Pickup:
+  Phase 5.**
 
 ---
 
