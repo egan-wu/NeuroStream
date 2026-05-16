@@ -1,0 +1,39 @@
+schema_version: 3
+name: look_around
+duration_ms: 5000
+
+# Player stands still and rotates 360° over 5 seconds (72°/s). 8 NPCs sit
+# at 8m distance arranged at 45° intervals around the player. As the
+# frustum sweeps through them, each NPC briefly enters LOD0 (rule 3:
+# stopped + in frustum + close) and then exits.
+#
+# Tests: facing interpolation across waypoints, frustum activation by
+# rotation alone (not by motion).
+
+audio: { enabled: true }
+
+player:
+  waypoints:
+    - { at_ms: 0,    pos: { x: 0, y: 0 }, facing_deg:   0 }
+    - { at_ms: 5000, pos: { x: 0, y: 0 }, facing_deg: 360 }
+
+# 8 NPCs at two radii (4m and 9m) at cardinal/diagonal directions.
+#   - Inner ring (4m, < stopped_dist_m=5): swept frustum triggers LOD0 (rule 3)
+#   - Outer ring (9m, < close_m=10):       swept frustum triggers LOD1 (rule 4)
+npcs:
+  - id: 1
+    waypoints: [ { at_ms: 0, pos: { x:  4.000, y:  0.000 } } ]   #   0° (inner)
+  - id: 2
+    waypoints: [ { at_ms: 0, pos: { x:  0.000, y:  4.000 } } ]   #  90° (inner)
+  - id: 3
+    waypoints: [ { at_ms: 0, pos: { x: -4.000, y:  0.000 } } ]   # 180° (inner)
+  - id: 4
+    waypoints: [ { at_ms: 0, pos: { x:  0.000, y: -4.000 } } ]   # 270° (inner)
+  - id: 5
+    waypoints: [ { at_ms: 0, pos: { x:  6.364, y:  6.364 } } ]   #  45° (outer)
+  - id: 6
+    waypoints: [ { at_ms: 0, pos: { x: -6.364, y:  6.364 } } ]   # 135° (outer)
+  - id: 7
+    waypoints: [ { at_ms: 0, pos: { x: -6.364, y: -6.364 } } ]   # 225° (outer)
+  - id: 8
+    waypoints: [ { at_ms: 0, pos: { x:  6.364, y: -6.364 } } ]   # 315° (outer)

@@ -1,0 +1,33 @@
+schema_version: 3
+name: interrupted
+duration_ms: 6000
+
+# DOCUMENTED LIMITATION (Phase 6):
+# Interactions have a fixed duration_ms — if the player walks away mid-
+# interaction, IntentPredictor still treats the NPC as "actively
+# interacting" until the duration expires. Real games would cancel the
+# interaction on player departure.
+#
+# This scenario locks the behavior in trace form: NPC 1 receives a 5-second
+# LOD0 hold (rule 2: explicit interact), and even though the player walks
+# 100m away starting at t=1000ms, no LOD downgrade occurs until t=5500ms
+# when the interaction window expires.
+#
+# When a future phase adds interaction interruption (e.g. on
+# "player_far_from_npc" signal), this scenario will need updating.
+
+audio: { enabled: true }
+
+player:
+  waypoints:
+    - { at_ms: 0,    pos: { x: 0,   y: 0 }, facing_deg: 0 }
+    - { at_ms: 1000, pos: { x: 0,   y: 0 }, facing_deg: 0 }   # stays for 1s of dialogue
+    - { at_ms: 5000, pos: { x: 100, y: 0 }, facing_deg: 0 }   # walks far away
+    - { at_ms: 6000, pos: { x: 100, y: 0 }, facing_deg: 0 }
+
+interactions:
+  - { at_ms: 500, npc_id: 1, duration_ms: 5000 }   # active until t=5500
+
+npcs:
+  - id: 1
+    waypoints: [ { at_ms: 0, pos: { x: 3, y: 0 } } ]

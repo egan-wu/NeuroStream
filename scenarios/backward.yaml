@@ -1,0 +1,25 @@
+schema_version: 3
+name: backward
+duration_ms: 4000
+
+# Player walks east 20m, then snaps around and walks back to origin.
+# Tests velocity_at() at the reversal seam (waypoint at t=2000 has
+# discontinuous velocity), and verifies that look-ahead doesn't produce
+# nonsense distances near sign-change.
+
+audio: { enabled: true }
+
+player:
+  waypoints:
+    - { at_ms: 0,    pos: { x:  0, y: 0 }, facing_deg:   0 }   # heading east
+    - { at_ms: 2000, pos: { x: 20, y: 0 }, facing_deg:   0 }   # arrived east
+    - { at_ms: 2001, pos: { x: 20, y: 0 }, facing_deg: 180 }   # snap turn
+    - { at_ms: 4000, pos: { x:  0, y: 0 }, facing_deg: 180 }   # back at origin
+
+# Two NPCs on the eastward path. NPC 1 ends up close on the way out and
+# becomes "behind" on the way back. NPC 2 is far enough to stay LOD2.
+npcs:
+  - id: 1
+    waypoints: [ { at_ms: 0, pos: { x: 18, y: 0 } } ]
+  - id: 2
+    waypoints: [ { at_ms: 0, pos: { x: 60, y: 0 } } ]

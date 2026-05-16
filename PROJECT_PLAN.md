@@ -140,6 +140,11 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] Scenario schema v3 with explicit `schema_version` field; v1/v2
       rejected with migration hints
 - [x] New `town.yaml` scenario demonstrating §5b fix
+- [x] Extra scenarios for coverage: `look_around` (rotation), `mixed`
+      (all 8 cascade rules), `backward` (velocity reversal),
+      `interrupted` (limitation doc)
+- [x] Boundary unit tests (close/near/visible distance edges, frustum
+      half-angle, stopped speed inclusivity, interaction window edges)
 - [ ] Eviction signal when NPC leaves predicted set — deferred to Phase 8
 
 ### Phase 7 — Extended Pillar E: Decompressor `[ ]`
