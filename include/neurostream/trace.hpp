@@ -15,6 +15,8 @@ enum class EventType : std::uint8_t {
     Complete     = 3,
     Drop         = 4,
     Cancel       = 5,
+    Evict        = 6,    // Phase 8: cache eviction
+    Degrade      = 7,    // Phase 8: LOD fallback on interaction
 };
 
 enum class QosTag : std::uint8_t {

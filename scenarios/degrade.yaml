@@ -1,0 +1,22 @@
+schema_version: 3
+name: degrade
+duration_ms: 100
+
+# Phase 8 Pillar G test: interaction at t=0 means cache is empty when the
+# player tries to engage. IntentPredictor must emit Degrade(no_weight) and
+# continue, NOT block the frame.
+
+audio: { enabled: true }
+
+player:
+  waypoints:
+    - { at_ms: 0,   pos: { x: 0, y: 0 }, facing_deg: 0 }
+    - { at_ms: 100, pos: { x: 0, y: 0 }, facing_deg: 0 }
+
+# Interaction fires IMMEDIATELY — cache cannot possibly have NPC 1's LOD0.
+interactions:
+  - { at_ms: 0, npc_id: 1, duration_ms: 50 }
+
+npcs:
+  - id: 1
+    waypoints: [ { at_ms: 0, pos: { x: 50, y: 0 } } ]

@@ -11,6 +11,8 @@ std::string_view to_string(EventType e) noexcept {
         case EventType::Complete:     return "complete";
         case EventType::Drop:         return "drop";
         case EventType::Cancel:       return "cancel";
+        case EventType::Evict:        return "evict";
+        case EventType::Degrade:      return "degrade";
     }
     return "?";
 }

@@ -168,17 +168,130 @@ void LodPredictor::on_evict(std::uint32_t npc_id, int lod) {
 // ----- IntentPredictor -----
 
 IntentPredictor::IntentPredictor(const Scenario& s, const Config& cfg)
-    : scenario_(s), lm_(cfg.lod_manager), ip_(cfg.intent_predictor) {
+    : scenario_(s), lm_(cfg.lod_manager), ip_(cfg.intent_predictor),
+      weights_cfg_(cfg.ai_weights) {
     tick_us_       = lm_.tick_us;
     look_ahead_ms_ = s.intent_look_ahead_ms_override.value_or(ip_.look_ahead_ms);
     fov_deg_       = s.intent_fov_deg_override.value_or(ip_.fov_deg);
+    npu_cores_     = cfg.npu.cores;
+    slots_.assign(static_cast<std::size_t>(npu_cores_), SlotState{});
+
+    auto capacity_bytes = static_cast<std::uint32_t>(cfg.npu.shared_cache_mb) *
+                          1024u * 1024u;
+    cache_ = std::make_unique<NpuCache>(
+        capacity_bytes, std::make_unique<DistanceLruPolicy>());
 }
 
 void IntentPredictor::start(Clock& clock, EventQueue& q,
                             AIWeightInjector& weights, TransactionSink& sink) {
+    clock_ = &clock;
     q.schedule(0, [this, &clock, &q, &weights, &sink] {
         tick(clock, q, weights, sink);
     });
+}
+
+int IntentPredictor::weight_size_bytes_for_lod(int lod) const {
+    int mb = (lod == 0 ? weights_cfg_.lod0_mb
+            : lod == 1 ? weights_cfg_.lod1_mb
+                       : weights_cfg_.lod2_mb);
+    return mb * 1024 * 1024;
+}
+
+void IntentPredictor::emit_event(EventType ev, std::uint32_t npc_id, int lod,
+                                 std::uint32_t size_bytes) {
+    if (!trace_ || !clock_) return;
+    TraceRecord r{};
+    r.timestamp_us = clock_->now();
+    // Encode (kind=Weight, npc_id) like the injector does so analyzers can
+    // attribute back to a specific NPC and LOD via size.
+    r.source_id = (static_cast<std::uint32_t>(SourceKind::Weight) << 24) |
+                  (npc_id & 0xFFFFFFu);
+    r.event_type = ev;
+    r.qos_tag    = QosTag::High;
+    r.dma_path   = DmaPath::None;
+    r.size_bytes = size_bytes;
+    r.latency_us = static_cast<std::uint32_t>(lod);   // re-use latency slot for LOD info
+    r.transaction_id = 0;
+    trace_->write(r);
+}
+
+int IntentPredictor::best_resident_lod(std::uint32_t npc_id, int desired) const {
+    // Prefer the desired LOD; otherwise pick the closest available LOD with
+    // a LARGER number (smaller / less detailed model) — that's the
+    // "graceful degradation" direction.
+    for (int lod = desired; lod <= 2; ++lod) {
+        if (cache_->is_resident(CacheKey{npc_id, static_cast<std::uint8_t>(lod)})) {
+            return lod;
+        }
+    }
+    return -1;
+}
+
+int IntentPredictor::acquire_slot(std::uint32_t npc_id, int lod, int ends_at_ms) {
+    // Re-use slot if the same NPC is already in one (idempotent).
+    for (std::size_t i = 0; i < slots_.size(); ++i) {
+        auto& sl = slots_[i];
+        if (sl.occupied && sl.npc_id == npc_id) {
+            sl.lod = lod;
+            sl.ends_at_ms = std::max(sl.ends_at_ms, ends_at_ms);
+            return static_cast<int>(i);
+        }
+    }
+    for (std::size_t i = 0; i < slots_.size(); ++i) {
+        if (!slots_[i].occupied) {
+            slots_[i] = {true, npc_id, lod, ends_at_ms};
+            return static_cast<int>(i);
+        }
+    }
+    return -1;   // saturated
+}
+
+void IntentPredictor::release_expired_slots(int t_ms) {
+    for (auto& sl : slots_) {
+        if (sl.occupied && t_ms >= sl.ends_at_ms) {
+            CacheKey k{sl.npc_id, static_cast<std::uint8_t>(sl.lod)};
+            cache_->unpin(k);
+            sl.occupied = false;
+        }
+    }
+}
+
+void IntentPredictor::handle_interaction(std::uint32_t npc_id, double distance_m,
+                                         int desired_lod, int ends_at_ms) {
+    // Try to use the desired LOD. If not resident, degrade.
+    int actual_lod = best_resident_lod(npc_id, desired_lod);
+
+    if (actual_lod < 0) {
+        // Total miss: no usable LOD in cache. Frame must continue.
+        emit_event(EventType::Degrade, npc_id, -1, 0);
+        kpi_.degradations++;
+        kpi_.degradations_no_weight++;
+        kpi_.cache_misses++;
+        return;
+    }
+
+    if (actual_lod != desired_lod) {
+        // Partial miss: degraded to a lower-detail tier.
+        emit_event(EventType::Degrade, npc_id, actual_lod,
+                   static_cast<std::uint32_t>(weight_size_bytes_for_lod(actual_lod)));
+        kpi_.degradations++;
+        kpi_.cache_misses++;
+    } else {
+        kpi_.cache_hits++;
+    }
+
+    // Pin and acquire a core slot.
+    CacheKey k{npc_id, static_cast<std::uint8_t>(actual_lod)};
+    int slot = acquire_slot(npc_id, actual_lod, ends_at_ms);
+    if (slot < 0) {
+        // All cores busy — log saturation but don't fail; the higher-level
+        // system would queue this. We track the event and skip pinning.
+        emit_event(EventType::Degrade, npc_id, -1, 0);
+        kpi_.core_saturation_events++;
+        return;
+    }
+    cache_->pin(k);
+    cache_->touch(k, clock_ ? clock_->now() : 0, distance_m);
 }
 
 bool IntentPredictor::is_in_frustum(const Vec2& player_pos, double player_facing_deg,
@@ -258,22 +371,26 @@ void IntentPredictor::tick(Clock& clock, EventQueue& q,
                            AIWeightInjector& weights, TransactionSink& sink) {
     int t_ms = static_cast<int>(clock.now() / 1000);
 
+    release_expired_slots(t_ms);
+
     Vec2 player_pos      = position_at(scenario_.player.waypoints, t_ms);
     Vec2 player_vel      = velocity_at(scenario_.player.waypoints, t_ms);
     double player_facing = facing_at(scenario_.player.waypoints, t_ms);
 
     double player_speed = std::sqrt(player_vel.x * player_vel.x +
-                                    player_vel.y * player_vel.y) * 1000.0;  // m/ms → m/s
+                                    player_vel.y * player_vel.y) * 1000.0;
     bool player_stopped = player_speed < ip_.stopped_speed_m_s;
 
     for (const auto& npc : scenario_.npcs) {
         auto snap = make_snapshot(npc, t_ms, player_pos, player_vel, player_facing);
 
         // Check active interactions
+        const InteractionSpec* active_ix = nullptr;
         for (const auto& ix : scenario_.interactions) {
             if (ix.npc_id != npc.id) continue;
             if (t_ms >= ix.at_ms && t_ms < ix.at_ms + ix.duration_ms) {
                 snap.interact_active = true;
+                active_ix = &ix;
                 break;
             }
         }
@@ -283,9 +400,27 @@ void IntentPredictor::tick(Clock& clock, EventQueue& q,
 
         if (desired < 0) continue;
 
+        CacheKey ck{npc.id, static_cast<std::uint8_t>(desired)};
+        // Phase 8: refresh distance for resident entries so distance-LRU
+        // sees up-to-date scores.
+        if (cache_->is_resident(ck)) {
+            cache_->touch(ck, clock.now(), snap.distance_m);
+        }
+
+        // Phase 8: on the first tick of an interaction, attempt to satisfy
+        // it from the cache. If unavailable, degrade (and still prefetch).
+        if (active_ix) {
+            auto ik = key(npc.id, static_cast<int>(active_ix->at_ms));
+            if (interact_handled_.insert(ik).second) {
+                handle_interaction(npc.id, snap.distance_m, desired,
+                                   active_ix->at_ms + active_ix->duration_ms);
+            }
+        }
+
+        // Decide whether to issue a prefetch.
         auto k = key(npc.id, desired);
         if (in_flight_.count(k) > 0) continue;
-        if (resident_.count(k) > 0) continue;
+        if (cache_->is_resident(ck))  continue;
 
         in_flight_.insert(k);
         weights.schedule_prefetch(clock, q, sink, clock.now(), npc.id, desired);
@@ -303,15 +438,32 @@ void IntentPredictor::tick(Clock& clock, EventQueue& q,
 void IntentPredictor::on_complete(std::uint32_t npc_id, int lod) {
     auto k = key(npc_id, lod);
     in_flight_.erase(k);
-    resident_.insert(k);
-}
 
-bool IntentPredictor::is_resident(std::uint32_t npc_id, int lod) const {
-    return resident_.count(key(npc_id, lod)) > 0;
-}
+    // Determine current distance (best-effort — uses last known player /
+    // npc positions at completion time).
+    int t_ms = clock_ ? static_cast<int>(clock_->now() / 1000) : 0;
+    Vec2 player_pos = scenario_.player.waypoints.empty()
+                    ? Vec2{0, 0}
+                    : position_at(scenario_.player.waypoints, t_ms);
+    double dist = 0.0;
+    for (const auto& n : scenario_.npcs) {
+        if (n.id == npc_id) {
+            dist = distance(player_pos, position_at(n.waypoints, t_ms));
+            break;
+        }
+    }
 
-void IntentPredictor::on_evict(std::uint32_t npc_id, int lod) {
-    resident_.erase(key(npc_id, lod));
+    CacheKey ck{npc_id, static_cast<std::uint8_t>(lod)};
+    auto size_bytes = static_cast<std::uint32_t>(weight_size_bytes_for_lod(lod));
+    auto res = cache_->admit(ck, size_bytes,
+                             clock_ ? clock_->now() : 0, dist);
+    for (const auto& evicted : res.evicted) {
+        emit_event(EventType::Evict, evicted.npc_id, evicted.lod, 0);
+        kpi_.evictions++;
+    }
+    if (!res.accepted) {
+        kpi_.admission_refusals++;
+    }
 }
 
 // ----- factory -----

@@ -158,13 +158,23 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] CLI `--compression` flag; 5-level improvement ladder in `--ab`
 - [x] Audio explicitly unaffected (own codec path)
 
-### Phase 8 — Multi-core NPU, Eviction, Degradation `[ ]`
-- [ ] Multi-core NPU model: N execution units, per-core request queue
-- [ ] Shared weight cache across cores
-- [ ] Distance-weighted LRU on NPU cache
-- [ ] Timeout-driven fallback to previous LOD tier
-- [ ] "Never block the frame" guarantee — assert in tests
-- [ ] Per-core and aggregate KPI reporting
+### Phase 8 — Multi-core NPU, Eviction, Degradation (Pillar F/G) `[x]`
+- [x] Bounded `NpuCache` with capacity from `npu.shared_cache_mb`
+- [x] `EvictionPolicy` interface + `DistanceLruPolicy` (distance descending,
+      LRU tiebreak)
+- [x] Pin/unpin refcount on cache entries — interaction-active LODs survive
+      eviction
+- [x] N-slot multi-core model (`npu.cores`); 5th simultaneous interaction
+      triggers `CoreSaturation` event
+- [x] Graceful degradation: best-resident-LOD fallback on miss; emits
+      `Degrade` event; if no LOD at all → `degradations_no_weight++` (frame
+      still continues — Pillar G promise verified)
+- [x] Trace `EventType` extended with `Evict` (6) and `Degrade` (7); CSV
+      gains corresponding strings; schema layout unchanged (still v2)
+- [x] `PredictorKpi` struct with `cache_hits/misses/evictions/refusals`
+      and `degradations_total/no_weight` and `core_saturation_events`
+- [x] `scenarios/cache_pressure.yaml` + `scenarios/degrade.yaml` for
+      Pillar F/G demos
 
 ### Phase 9 — Reporting `[ ]`
 - [ ] CSV schema for per-event trace

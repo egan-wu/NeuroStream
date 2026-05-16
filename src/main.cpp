@@ -16,6 +16,7 @@ namespace {
 
 struct RunResult {
     Scheduler::Kpi kpi;
+    PredictorKpi   predictor_kpi;
     Time           wall_clock_us = 0;
 };
 
@@ -48,6 +49,7 @@ RunResult run_one(const Config& cfg_in, const Scenario& scn,
                                b.rate_mbps, b.duration_ms);
     }
     auto predictor = make_predictor(cfg.predictor.policy, scn, cfg);
+    predictor->set_trace_writer(&tw);
     predictor->start(clock, q, weights, *sched);
     sched->set_completion_observer(
         [&predictor](std::uint32_t npc_id, int lod) {
@@ -57,8 +59,9 @@ RunResult run_one(const Config& cfg_in, const Scenario& scn,
     while (q.pop_and_run(clock)) {}
 
     RunResult r;
-    r.kpi           = sched->kpi();
-    r.wall_clock_us = clock.now();
+    r.kpi               = sched->kpi();
+    r.predictor_kpi     = predictor->kpi();
+    r.wall_clock_us     = clock.now();
     return r;
 }
 
@@ -70,18 +73,16 @@ Time p99(std::vector<Time>& v) {
     return v[i];
 }
 
-void print_kpi(const char* label, Scheduler::Kpi kpi) {
+void print_kpi(const char* label, Scheduler::Kpi kpi, const PredictorKpi& pk) {
     Time p = p99(kpi.audio_lat_samples);
-    std::printf("  [%s] issued=%llu completed=%llu dropped=%llu | "
-                "audio_completed=%llu audio_dropped=%llu | "
-                "audio_lat_us mean=%.1f max=%lld p99=%lld | "
-                "weight_lat_us max=%lld | "
-                "cpu_cycles=%llu decompress_cycles=%llu sgl_entries=%llu\n",
+    std::printf("  [%s] dropped=%llu | "
+                "audio_dropped=%llu lat_us(mean/max/p99)=%.1f/%lld/%lld | "
+                "weight_max=%lld | "
+                "cpu_cyc=%llu decomp_cyc=%llu | "
+                "cache(hit/miss/evict/refuse)=%llu/%llu/%llu/%llu "
+                "degrade(total/none)=%llu/%llu sat=%llu\n",
                 label,
-                (unsigned long long)kpi.issued,
-                (unsigned long long)kpi.completed,
                 (unsigned long long)kpi.dropped,
-                (unsigned long long)kpi.audio_completed,
                 (unsigned long long)kpi.audio_dropped,
                 kpi.audio_lat_mean,
                 (long long)kpi.audio_lat_max,
@@ -89,7 +90,13 @@ void print_kpi(const char* label, Scheduler::Kpi kpi) {
                 (long long)kpi.weight_lat_max,
                 (unsigned long long)kpi.cpu_cycles_used,
                 (unsigned long long)kpi.decompress_cycles_used,
-                (unsigned long long)kpi.sgl_entries_total);
+                (unsigned long long)pk.cache_hits,
+                (unsigned long long)pk.cache_misses,
+                (unsigned long long)pk.evictions,
+                (unsigned long long)pk.admission_refusals,
+                (unsigned long long)pk.degradations,
+                (unsigned long long)pk.degradations_no_weight,
+                (unsigned long long)pk.core_saturation_events);
 }
 
 }
@@ -152,7 +159,7 @@ int main(int argc, char** argv) {
                              trace_bin + suffix, trace_csv + suffix);
             char label[48];
             std::snprintf(label, sizeof(label), "%s+%s+%s", s.pol, s.dma, s.cmp);
-            print_kpi(label, r.kpi);
+            print_kpi(label, r.kpi, r.predictor_kpi);
         }
     } else {
         std::string p = policy.empty() ? cfg.scheduler.policy : policy;
@@ -164,7 +171,7 @@ int main(int argc, char** argv) {
                     (d.empty() ? cfg.dma.path.c_str() : d.c_str()),
                     (c.empty() ? cfg.compression.path.c_str() : c.c_str()),
                     (long long)r.wall_clock_us);
-        print_kpi(p.c_str(), r.kpi);
+        print_kpi(p.c_str(), r.kpi, r.predictor_kpi);
         std::printf("trace: %s + %s\n", trace_bin.c_str(), trace_csv.c_str());
     }
     return 0;

@@ -1,0 +1,74 @@
+schema_version: 3
+name: cache_pressure
+duration_ms: 10000
+
+# Phase 8 stress: 10 NPCs all going through LOD0 prefetch over time.
+# Each NPC's LOD0 weight is 100 MB. With the default 512 MB NPU cache,
+# only 5 can be resident → eviction must fire as more arrive.
+#
+# Additionally, an interaction is scheduled with one NPC AFTER its weight
+# has been evicted, triggering a Degrade event (fall back to LOD2 or empty).
+
+audio: { enabled: true }
+
+player:
+  waypoints:
+    - { at_ms: 0,     pos: { x: 0, y: 0 }, facing_deg: 0 }
+    - { at_ms: 10000, pos: { x: 0, y: 0 }, facing_deg: 0 }   # player static
+
+# Two simultaneous interactions force pinning of 2 cache entries.
+interactions:
+  - { at_ms: 100,  npc_id: 1, duration_ms: 8000 }
+  - { at_ms: 200,  npc_id: 2, duration_ms: 8000 }
+
+# NPCs 1 & 2 stay close (pinned via interactions).
+# NPCs 3-10 cycle through proximity, causing cache pressure on the
+# remaining 312 MB of cache (~3 entries fit).
+npcs:
+  - id: 1
+    waypoints: [ { at_ms: 0, pos: { x: 3, y: 0 } } ]
+  - id: 2
+    waypoints: [ { at_ms: 0, pos: { x: 4, y: 0 } } ]
+  - id: 3
+    waypoints:
+      - { at_ms: 0,     pos: { x: 4, y: 0 } }
+      - { at_ms: 5000,  pos: { x: 4, y: 0 } }
+      - { at_ms: 5001,  pos: { x: 80, y: 0 } }       # walks away → evictable
+      - { at_ms: 10000, pos: { x: 80, y: 0 } }
+  - id: 4
+    waypoints:
+      - { at_ms: 0,     pos: { x: 5, y: 0 } }
+      - { at_ms: 3000,  pos: { x: 5, y: 0 } }
+      - { at_ms: 3001,  pos: { x: 90, y: 0 } }
+      - { at_ms: 10000, pos: { x: 90, y: 0 } }
+  - id: 5
+    waypoints:
+      - { at_ms: 0,     pos: { x: 6, y: 0 } }
+      - { at_ms: 2000,  pos: { x: 6, y: 0 } }
+      - { at_ms: 2001,  pos: { x: 100, y: 0 } }
+      - { at_ms: 10000, pos: { x: 100, y: 0 } }
+  - id: 6
+    waypoints:
+      - { at_ms: 4000,  pos: { x: 60, y: 0 } }
+      - { at_ms: 4500,  pos: { x: 6, y: 0 } }       # enters at t=4.5s
+      - { at_ms: 10000, pos: { x: 6, y: 0 } }
+  - id: 7
+    waypoints:
+      - { at_ms: 5000,  pos: { x: 60, y: 0 } }
+      - { at_ms: 5500,  pos: { x: 6, y: 0 } }
+      - { at_ms: 10000, pos: { x: 6, y: 0 } }
+  - id: 8
+    waypoints:
+      - { at_ms: 6000,  pos: { x: 60, y: 0 } }
+      - { at_ms: 6500,  pos: { x: 6, y: 0 } }
+      - { at_ms: 10000, pos: { x: 6, y: 0 } }
+  - id: 9
+    waypoints:
+      - { at_ms: 7000,  pos: { x: 60, y: 0 } }
+      - { at_ms: 7500,  pos: { x: 6, y: 0 } }
+      - { at_ms: 10000, pos: { x: 6, y: 0 } }
+  - id: 10
+    waypoints:
+      - { at_ms: 8000,  pos: { x: 60, y: 0 } }
+      - { at_ms: 8500,  pos: { x: 6, y: 0 } }
+      - { at_ms: 10000, pos: { x: 6, y: 0 } }

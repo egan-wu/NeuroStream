@@ -1110,3 +1110,123 @@ Cross-cutting decisions made before any phase implementation begins.
   shared cache with the eviction policy from Pillar F. KPIs must
   report per-core stats and aggregate.
 - **Date:** 2026-05-05
+
+### Decision: Cache is a bounded, capacity-aware data structure
+
+- **Choice:** `NpuCache` class with `capacity_bytes` from
+  `config.npu.shared_cache_mb`. Replaces `IntentPredictor::resident_`
+  (unbounded set). Maintains both `bytes_used` and a fast
+  `(npc_id, lod) → entry` lookup.
+- **Reason:** Phase 4/6 used unbounded residency because cache
+  pressure wasn't being measured. Phase 8 promise: bounded memory
+  drives eviction, which drives the interesting failure modes
+  (degradation, thrashing).
+- **Alternatives considered:**
+  - Continue unbounded — rejected: hides Pillar F entirely.
+  - Per-core private caches — rejected: shared cache is the realistic
+    NPU SoC model and is more interesting for eviction analysis.
+- **Implications:** Predictor calls `cache.admit()` on weight
+  completion. Admit may return `Evicted{...}` listing displaced
+  entries (each emits an `Evict` trace event). Out-of-capacity with
+  nothing evictable → admission refused, predictor marks as failure.
+- **Date:** 2026-05-16
+
+### Decision: Eviction policy abstracted behind `EvictionPolicy` interface
+
+- **Choice:** `EvictionPolicy` is an abstract base; concrete
+  `DistanceLruPolicy` implements distance-descending with
+  last-access-time tiebreak. Selected at construction via
+  `config.eviction.policy = "distance_lru"`.
+- **Reason:** Real systems evolve their eviction logic — Unreal moved
+  from pure LRU to "significance-aware" replacement; ARM CHI cache
+  controllers expose policy hooks. Keeping the interface narrow
+  (`pick_victim() → entry_key`) lets us swap in NRU, LFU, ML-driven
+  policies in future phases without touching cache mechanics.
+- **Alternatives considered:**
+  - Hardcoded LRU — rejected: misses Phase 4's "distance is a real
+    signal" story; loses extensibility.
+  - Coefficient-weighted policy (α·distance + β·time) — rejected:
+    requires tuning two knobs; lex-order (distance, then time) is
+    simpler and equally defensible.
+- **Implications:** Tests can substitute a `FakePolicy` for
+  deterministic eviction order. Phase 11 docs name the policy
+  decision as a "tunable point".
+- **Date:** 2026-05-16
+
+### Decision: Multi-core = N "inference slots" gating concurrent interactions
+
+- **Choice:** NPU exposes N slots (= `npu.cores`). An interaction
+  occupying a slot pins the active `(npc, lod)` in cache for the
+  interaction duration. If a new interaction arrives while all slots
+  are taken, emit a `CoreSaturation` event and queue the request
+  (FIFO) until a slot frees.
+- **Reason:** This is the most realistic minimal model: cores aren't
+  the bottleneck in our simulation (no inference work), but they ARE
+  the pinning quota. Without N, every interaction would pin without
+  limit and exhaust cache. With N, the simulator enforces "only N
+  active NPCs at once" — matching real NPU PE-array constraints.
+- **Alternatives considered:**
+  - No slot concept — rejected: pinning is unbounded, cache pressure
+    becomes meaningless.
+  - Full inference work simulation — rejected: would require modeling
+    NPU cycles and ML workload, out of scope.
+- **Implications:** Per-core stats reported in KPI: `core_busy_us[i]`,
+  `core_saturation_events`. Test scenarios can deliberately exceed N
+  to verify queue behavior.
+- **Date:** 2026-05-16
+
+### Decision: Pinning is per-interaction, lifetime = interaction window
+
+- **Choice:** When an interaction starts, the highest available LOD
+  for that NPC (best ≤ desired) is pinned in cache. Pinning increments
+  a refcount on the cache entry, blocking eviction. When the
+  interaction ends, refcount decrements.
+- **Reason:** Real game engines pin texture / model resources during
+  active draw or inference. PS5's `Sys::Pin` API (private SDK) does
+  exactly this. Without pinning, eviction could displace the very
+  resource being inferenced, producing inconsistent results.
+- **Alternatives considered:**
+  - No pinning — rejected: cache could evict active resources.
+  - Always-pin all resident — rejected: degenerates to "infinite cache".
+- **Implications:** `NpuCache::Entry` carries `pin_count`. Eviction
+  policy ignores entries with `pin_count > 0`. Test verifies pinned
+  entries survive eviction storms.
+- **Date:** 2026-05-16
+
+### Decision: Degradation = fall back to highest available lower LOD
+
+- **Choice:** When an interaction requires LOD0 but it is not resident
+  and not yet in flight, the scheduler/predictor falls back to
+  LOD1 (if resident), then LOD2 (if resident); pins whichever is
+  found. Emits a `Degrade` trace event with `desired_lod` and
+  `actual_lod`. If no LOD is resident at all → emits `Degrade` with
+  `actual_lod = -1` (no model available — caller must skip inference).
+- **Reason:** "Never block the frame" — Pillar G's promise. Real
+  streaming systems (Unreal mipmap fallback, Cyberpunk dialogue tier
+  drop) do exactly this. Stalling the frame to wait for a load is
+  the worst-case outcome and must not happen.
+- **Alternatives considered:**
+  - Stall until load completes — rejected: violates the frame budget.
+  - Hard-fail (skip interaction entirely) — rejected: better to
+    degrade than to be silent.
+- **Implications:** `Degrade` event in trace; KPI counter
+  `degradations_total` and `degradations_no_weight`. Tests assert
+  that interaction always produces SOMETHING, even with empty cache.
+- **Date:** 2026-05-16
+
+### Decision: Trace EventType extended; schema stays v2
+
+- **Choice:** Add `Evict` (= 6) and `Degrade` (= 7) to `EventType`
+  enum. Existing trace records' layout unchanged; analysis code
+  switches on the new types as needed.
+- **Reason:** v2 schema reserves an enum value space large enough for
+  these additions (uint8). No layout change → no version bump → no
+  reader breakage.
+- **Alternatives considered:**
+  - Bump to v3 — rejected: unnecessary since record layout is
+    unchanged.
+  - Use generic `Drop` event — rejected: muddies the semantic
+    distinction between "deadline missed" and "evicted from cache".
+- **Implications:** `to_string(EventType)` extended with two cases.
+  CSV gets two new value strings: `evict`, `degrade`.
+- **Date:** 2026-05-16
