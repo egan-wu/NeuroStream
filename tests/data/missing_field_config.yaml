@@ -24,6 +24,15 @@ ai_weights:
   lod1_mb: 30
   lod2_mb: 10
   priority: high
+lod_manager:
+  tick_us: 16667
+  hysteresis_pct: 20
+  bands:
+    - { lod: 0, max_distance_m: 10 }
+    - { lod: 1, max_distance_m: 30 }
+    - { lod: 2, max_distance_m: 100 }
+predictor:
+  policy: lod
 scheduler:
   policy: qos
   quantum_us: 100

@@ -43,8 +43,12 @@ RunResult run_one(const Config& cfg_in, const Scenario& scn,
                                static_cast<Time>(b.at_ms) * 1000,
                                b.rate_mbps, b.duration_ms);
     }
-    ScriptedPredictor predictor(scn);
-    predictor.start(clock, q, weights, *sched);
+    auto predictor = make_predictor(cfg.predictor.policy, scn, cfg);
+    predictor->start(clock, q, weights, *sched);
+    sched->set_completion_observer(
+        [&predictor](std::uint32_t npc_id, int lod) {
+            predictor->on_complete(npc_id, lod);
+        });
 
     while (q.pop_and_run(clock)) {}
 

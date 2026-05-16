@@ -106,11 +106,14 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] Bandwidth budget per QoS class (token-bucket on Critical, 5%)
 - [x] Compare-mode switch via `--policy` and `--ab` for A/B reports
 
-### Phase 4 — Pillar B: Weight LOD Manager `[ ]`
-- [ ] Define LOD tiers (LOD0=100MB, LOD1=30MB, LOD2=10MB)
-- [ ] Distance → LOD mapping function
-- [ ] LOD switch hysteresis (avoid thrashing on boundary)
-- [ ] Mock NPC scene with N agents at varying distances
+### Phase 4 — Pillar B: Weight LOD Manager `[x]`
+- [x] Define LOD tiers (LOD0/1/2 as **function tiers**, not quality grades)
+- [x] Distance → LOD mapping function (discrete bands in `config.yaml`)
+- [x] LOD switch hysteresis (20% deadband + conservative cold-start)
+- [x] Mock NPC scene with N agents at varying distances (`scenarios/world.yaml`)
+- [x] In-flight tracking + cache hit/miss interface (eviction deferred to Phase 8)
+- [x] `Predictor` factory + `predictor.policy` config switch (`scripted`/`lod`)
+- [x] Migrate scenarios: replace `weight_prefetches` with `npcs:` waypoints
 
 ### Phase 5 — Pillar C: Zero-Copy P2P DMA `[ ]`
 - [ ] Model two transfer paths: `bounce-buffer` vs `p2p-dma`

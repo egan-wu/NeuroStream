@@ -26,11 +26,14 @@ TEST_CASE("loads valid scenario fully") {
     CHECK(s.texture_bursts[0].rate_mbps == 500);
     CHECK(s.texture_bursts[0].duration_ms == 50);
 
-    REQUIRE(s.weight_prefetches.size() == 2);
-    CHECK(s.weight_prefetches[0].at_ms == 100);
-    CHECK(s.weight_prefetches[0].npc_id == 1);
-    CHECK(s.weight_prefetches[0].lod == 0);
-    CHECK(s.weight_prefetches[1].lod == 2);
+    REQUIRE(s.npcs.size() == 2);
+    CHECK(s.npcs[0].id == 1);
+    REQUIRE(s.npcs[0].waypoints.size() == 2);
+    CHECK(s.npcs[0].waypoints[0].at_ms == 0);
+    CHECK(s.npcs[0].waypoints[0].distance_m == doctest::Approx(80.0));
+    CHECK(s.npcs[0].waypoints[1].at_ms == 500);
+    CHECK(s.npcs[0].waypoints[1].distance_m == doctest::Approx(5.0));
+    CHECK(s.npcs[1].id == 2);
 }
 
 TEST_CASE("missing required field throws ScenarioError naming the field") {
@@ -43,10 +46,48 @@ TEST_CASE("missing required field throws ScenarioError naming the field") {
     }
 }
 
-TEST_CASE("invalid LOD value rejected") {
+TEST_CASE("negative distance_m rejected") {
     CHECK_THROWS_AS(load_scenario(data_path("bad_lod_scenario.yaml")), ScenarioError);
+}
+
+TEST_CASE("legacy weight_prefetches field rejected with migration hint") {
+    try {
+        load_scenario(data_path("legacy_scenario.yaml"));
+        FAIL("expected ScenarioError");
+    } catch (const ScenarioError& e) {
+        std::string msg = e.what();
+        CHECK(msg.find("weight_prefetches") != std::string::npos);
+        CHECK(msg.find("npcs") != std::string::npos);
+    }
 }
 
 TEST_CASE("missing file throws ScenarioError") {
     CHECK_THROWS_AS(load_scenario(data_path("nope.yaml")), ScenarioError);
+}
+
+TEST_CASE("distance_at: returns endpoints outside range") {
+    std::vector<Waypoint> wps = {
+        {0,   100.0},
+        {500, 10.0},
+        {1000, 50.0},
+    };
+    CHECK(distance_at(wps, -100) == doctest::Approx(100.0));
+    CHECK(distance_at(wps, 0)    == doctest::Approx(100.0));
+    CHECK(distance_at(wps, 1000) == doctest::Approx(50.0));
+    CHECK(distance_at(wps, 9999) == doctest::Approx(50.0));
+}
+
+TEST_CASE("distance_at: linear interpolation between waypoints") {
+    std::vector<Waypoint> wps = {
+        {0,    100.0},
+        {1000, 0.0},
+    };
+    CHECK(distance_at(wps, 250) == doctest::Approx(75.0));
+    CHECK(distance_at(wps, 500) == doctest::Approx(50.0));
+    CHECK(distance_at(wps, 750) == doctest::Approx(25.0));
+}
+
+TEST_CASE("distance_at: empty waypoints returns zero") {
+    std::vector<Waypoint> wps;
+    CHECK(distance_at(wps, 100) == doctest::Approx(0.0));
 }

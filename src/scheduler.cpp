@@ -99,6 +99,17 @@ void Scheduler::on_quantum_end(std::unique_ptr<PendingTxn> p) {
             kpi_.audio_lat_samples.push_back(e2e);
         } else if (p->tx.source == SourceKind::Weight) {
             kpi_.weight_lat_max = std::max(kpi_.weight_lat_max, e2e);
+            if (on_complete_) {
+                // For weight transactions, source_inst is the npc_id and
+                // size_bytes identifies which LOD was loaded.
+                const auto sz_mb =
+                    static_cast<int>(p->tx.size_bytes / (1024u * 1024u));
+                int lod = 0;
+                if      (sz_mb == cfg_.ai_weights.lod0_mb) lod = 0;
+                else if (sz_mb == cfg_.ai_weights.lod1_mb) lod = 1;
+                else                                       lod = 2;
+                on_complete_(p->tx.source_inst, lod);
+            }
         }
     } else {
         // Re-queue. Drop check: audio past deadline never gets back into queue.

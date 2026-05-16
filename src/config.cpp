@@ -72,6 +72,24 @@ Config load_config(const std::filesystem::path& path) {
     c.ai_weights.lod2_mb  = as<int>(aw, "lod2_mb", "ai_weights");
     c.ai_weights.priority = as<std::string>(aw, "priority", "ai_weights");
 
+    auto lm = require(root, "lod_manager", "");
+    c.lod_manager.tick_us        = as<int>(lm, "tick_us", "lod_manager");
+    c.lod_manager.hysteresis_pct = as<int>(lm, "hysteresis_pct", "lod_manager");
+    auto bands = require(lm, "bands", "lod_manager");
+    if (!bands.IsSequence() || bands.size() == 0) {
+        throw ConfigError("lod_manager.bands must be a non-empty sequence");
+    }
+    for (std::size_t i = 0; i < bands.size(); ++i) {
+        LodBand b;
+        std::string path = "lod_manager.bands[" + std::to_string(i) + "]";
+        b.lod            = as<int>(bands[i], "lod", path);
+        b.max_distance_m = as<int>(bands[i], "max_distance_m", path);
+        c.lod_manager.bands.push_back(b);
+    }
+
+    auto pr = require(root, "predictor", "");
+    c.predictor.policy = as<std::string>(pr, "policy", "predictor");
+
     auto sch = require(root, "scheduler", "");
     c.scheduler.policy                  = as<std::string>(sch, "policy", "scheduler");
     c.scheduler.quantum_us              = as<int>(sch, "quantum_us", "scheduler");

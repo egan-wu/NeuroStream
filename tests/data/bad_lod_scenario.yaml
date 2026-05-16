@@ -1,10 +1,12 @@
-name: bad_lod
+name: bad_distance
 duration_ms: 1000
 
 audio:
   enabled: false
 
-weight_prefetches:
-  - at_ms: 100
-    npc_id: 1
-    lod: 5
+# distance_m must be non-negative — Phase 4 rejects this.
+npcs:
+  - id: 1
+    waypoints:
+      - { at_ms: 0,   distance_m: -5 }
+      - { at_ms: 500, distance_m:  5 }

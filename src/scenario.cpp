@@ -1,4 +1,5 @@
 #include "neurostream/scenario.hpp"
+#include <algorithm>
 #include <yaml-cpp/yaml.h>
 
 namespace neurostream {
@@ -53,22 +54,67 @@ Scenario load_scenario(const std::filesystem::path& path) {
         }
     }
 
-    if (auto pf = root["weight_prefetches"]; pf && pf.IsSequence()) {
-        for (std::size_t i = 0; i < pf.size(); ++i) {
-            YAML::Node p = pf[i];
-            std::string ctx = "weight_prefetches[" + std::to_string(i) + "]";
-            WeightPrefetchSpec spec;
-            spec.at_ms  = as<int>(p, "at_ms", ctx);
-            spec.npc_id = as<std::uint32_t>(p, "npc_id", ctx);
-            spec.lod    = as<int>(p, "lod", ctx);
-            if (spec.lod < 0 || spec.lod > 2) {
-                throw ScenarioError(ctx + ".lod must be 0, 1, or 2");
+    if (root["weight_prefetches"]) {
+        throw ScenarioError(
+            "scenario field 'weight_prefetches' is no longer supported; "
+            "use 'npcs:' with waypoints (see docs/scenario-schema.md). "
+            "Phase 4 migrated to declarative motion.");
+    }
+
+    if (auto ns = root["npcs"]; ns && ns.IsSequence()) {
+        for (std::size_t i = 0; i < ns.size(); ++i) {
+            YAML::Node n = ns[i];
+            std::string ctx = "npcs[" + std::to_string(i) + "]";
+            NpcSpec spec;
+            spec.id = as<std::uint32_t>(n, "id", ctx);
+
+            if (auto pri = n["priority"]; pri && !pri.IsNull()) {
+                spec.priority = pri.as<std::string>();
             }
-            s.weight_prefetches.push_back(spec);
+
+            auto wps = require(n, "waypoints", ctx);
+            if (!wps.IsSequence() || wps.size() == 0) {
+                throw ScenarioError(ctx + ".waypoints must be a non-empty sequence");
+            }
+            for (std::size_t j = 0; j < wps.size(); ++j) {
+                YAML::Node w = wps[j];
+                std::string wctx = ctx + ".waypoints[" + std::to_string(j) + "]";
+                Waypoint wp;
+                wp.at_ms      = as<int>(w, "at_ms", wctx);
+                wp.distance_m = as<double>(w, "distance_m", wctx);
+                if (wp.distance_m < 0.0) {
+                    throw ScenarioError(wctx + ".distance_m must be non-negative");
+                }
+                // Phase 6 reserved fields — read if present, ignore otherwise.
+                if (auto px = w["pos_x"]; px && !px.IsNull()) wp.pos_x = px.as<double>();
+                if (auto py = w["pos_y"]; py && !py.IsNull()) wp.pos_y = py.as<double>();
+                spec.waypoints.push_back(wp);
+            }
+            std::sort(spec.waypoints.begin(), spec.waypoints.end(),
+                      [](const Waypoint& a, const Waypoint& b) { return a.at_ms < b.at_ms; });
+            s.npcs.push_back(spec);
         }
     }
 
     return s;
+}
+
+double distance_at(const std::vector<Waypoint>& wps, int t_ms) {
+    if (wps.empty()) return 0.0;
+    if (t_ms <= wps.front().at_ms) return wps.front().distance_m;
+    if (t_ms >= wps.back().at_ms)  return wps.back().distance_m;
+    // Binary-search-free linear scan; waypoint lists are short (<10 typical).
+    for (std::size_t i = 1; i < wps.size(); ++i) {
+        if (t_ms <= wps[i].at_ms) {
+            const auto& a = wps[i - 1];
+            const auto& b = wps[i];
+            if (b.at_ms == a.at_ms) return b.distance_m;
+            double t = static_cast<double>(t_ms - a.at_ms) /
+                       static_cast<double>(b.at_ms - a.at_ms);
+            return a.distance_m + t * (b.distance_m - a.distance_m);
+        }
+    }
+    return wps.back().distance_m;
 }
 
 }

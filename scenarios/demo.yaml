@@ -9,10 +9,17 @@ texture_bursts:
     rate_mbps: 500
     duration_ms: 100
 
-weight_prefetches:
-  - at_ms: 800
-    npc_id: 5
-    lod: 0
-  - at_ms: 2500
-    npc_id: 7
-    lod: 2
+# Two NPCs with scripted motion. LodPredictor derives prefetches from distance
+# bands; ScriptedPredictor (baseline) issues LOD0 for every NPC at scenario
+# start, ignoring distance.
+npcs:
+  - id: 5
+    waypoints:
+      - { at_ms: 0,    distance_m: 80 }   # far → no LOD
+      - { at_ms: 800,  distance_m: 5  }   # crosses into LOD0 range
+      - { at_ms: 4500, distance_m: 50 }   # walks back out to LOD2
+  - id: 7
+    waypoints:
+      - { at_ms: 0,    distance_m: 60 }   # mid-range → LOD2
+      - { at_ms: 2500, distance_m: 35 }   # near LOD2/LOD1 boundary
+      - { at_ms: 5000, distance_m: 28 }   # ends in LOD1

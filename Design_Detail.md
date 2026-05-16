@@ -508,6 +508,173 @@ Cross-cutting decisions made before any phase implementation begins.
 
 ---
 
+## Phase 4 — Weight LOD Manager
+
+### Decision: LOD semantics — function tiers, not quality tiers
+
+- **Choice:** The three LOD tiers represent **different categories of
+  AI model**, not different quality grades of the same model. Real
+  industry direction (NVIDIA ACE, Inworld AI) splits NPC intelligence
+  into multiple specialized models loaded by proximity:
+  - **LOD0 (100 MB)** — dialogue LLM; load when player can converse (<10 m)
+  - **LOD1 (30 MB)** — behavior / reaction NN; load when interaction is
+    likely (combat range, <30 m)
+  - **LOD2 (10 MB)** — bark / expression model; ambient verbal and
+    facial reactions (<100 m)
+  - **No LOD (0 MB)** — pure FSM, no neural inference; background NPCs
+- **Reason:** Current games use LLMs only for dialogue (user's
+  observation). Treating LOD as quality grades of one giant
+  "everything" LLM was inaccurate and would not match where real AI
+  pipelines are heading. Function tiers correctly explain why streaming
+  is needed: a 50-NPC scene cannot pre-load every functionality for
+  every NPC, so models swap in on demand by interaction relevance.
+- **Alternatives considered:**
+  - Single-LLM proximity swap (binary load/unload) — rejected: simpler
+    but kills the LOD pillar; project drops from 5 to 4 pillars.
+  - Quality-tier LLM — rejected: technically misleading, doesn't match
+    industry direction, weaker SIE narrative.
+- **Implications:** Distance bands, hysteresis, and tick mechanics are
+  unchanged from the original plan. Only the *meaning* of each LOD
+  number changes, which is captured in docs and YAML comments.
+- **Date:** 2026-05-16
+
+### Decision: Distance bands — discrete with forward-looking schema
+
+- **Choice:** LOD is selected by discrete distance bands defined in
+  `config.yaml`:
+  ```yaml
+  lod_manager:
+    bands:
+      - { lod: 0, max_distance_m: 10 }
+      - { lod: 1, max_distance_m: 30 }
+      - { lod: 2, max_distance_m: 100 }
+  ```
+  NPCs beyond 100 m get no LOD (FSM-only, no weight load).
+- **Reason:** AI weights have no meaningful interpolation between
+  tiers (you cannot average a 100 MB LLM and a 10 MB bark model).
+  Matches Unreal AI Significance Manager and Unity LOD Group, both of
+  which use discrete bands. Schema reserves keys for `npc_priority`
+  and 2D `position` to support Phase 6 (frustum / quest-NPC override)
+  without rewrites.
+- **Alternatives considered:**
+  - Continuous mapping — rejected: meaningless for discrete model
+    artifacts.
+  - Five+ bands — rejected: more switches without proportional value
+    until per-NPC priority is added in Phase 6.
+- **Implications:** Phase 4 ignores `priority` and `position` fields
+  if present in scenarios; Phase 6 activates them.
+- **Date:** 2026-05-16
+
+### Decision: Hysteresis — 20% deadband with conservative cold-start
+
+- **Choice:** Each band has an asymmetric `enter`/`leave` threshold
+  with a 20% deadband (`leave = max_distance × 1.2`). On scenario
+  start, an NPC currently inside a deadband initializes to the
+  **larger** (more conservative) LOD number — i.e. assume "further
+  away" until evidence proves otherwise.
+- **Reason:** A 60 Hz oscillation across a hard boundary would burn
+  ~7.8 GB/s of bus bandwidth on swap traffic alone — exceeds raw SSD
+  rate, deadlocks the system in simulation. 20% matches Unreal's
+  default texture-pool deadband. Conservative cold-start avoids
+  starting NPCs at LOD0 and immediately downgrading.
+- **Alternatives considered:**
+  - Dwell-time hysteresis (must stay N ms in new band) — rejected for
+    Phase 4: slower reaction to legitimate large motion (player
+    teleport, fast vehicles). Revisit in Phase 6 with velocity-aware
+    deadband.
+  - No hysteresis — rejected: boundary thrash destroys the demo.
+- **Implications:** Velocity-aware deadband is explicit Phase 6
+  follow-up. Boundary NPCs at scenario start get LOD1/2 not LOD0.
+- **Date:** 2026-05-16
+
+### Decision: NPC motion — scripted waypoints with linear interpolation
+
+- **Choice:** Scenarios describe NPC motion as a list of `(at_ms,
+  distance_m)` waypoints per NPC. Between waypoints, distance is
+  linearly interpolated. Schema reserves `position: {x, y}` and a
+  top-level `player_position` for Phase 6; Phase 4 reads only
+  `distance_m`.
+- **Reason:** Reproducibility is the basis for A/B comparison —
+  random motion produces unreproducible drop counts and latency
+  distributions. Linear interpolation is the simplest model that
+  matches Unreal Sequencer / Unity Timeline scrubbing semantics.
+- **Alternatives considered:**
+  - Velocity-vector model (initial pos + velocity) — rejected: hard
+    to express "player turns around" or sudden direction change.
+  - Random walk — rejected: not reproducible.
+  - Acceleration model — rejected: complexity without Phase 4 payoff;
+    linear is enough to test LOD transitions.
+- **Implications:** Velocity at waypoint boundaries is discontinuous;
+  Phase 6 spatial predictor must handle this or scenarios must use
+  finer waypoints around prediction-sensitive moments.
+- **Date:** 2026-05-16
+
+### Decision: LOD Manager tick rate — 60 Hz
+
+- **Choice:** LOD Manager re-evaluates every NPC's required LOD every
+  16,667 µs (60 Hz). Configurable via `lod_manager.tick_us`.
+- **Reason:** Matches console game frame rate; aligns LOD decisions
+  with player-visible frame boundaries; 5-second scenario produces
+  300 tick events × N NPCs — manageable trace size.
+- **Alternatives considered:**
+  - 1 ms tick — rejected: 5,000 events per 5 s, noisy trace, no
+    benefit (LOD changes happen on hundred-ms scale).
+  - Event-driven (compute next threshold crossing time) — rejected:
+    complex with linear waypoints, marginal saving.
+  - Per-NPC stagger — deferred to Phase 8 (when NPC count is high
+    enough to matter).
+- **Implications:** All NPCs evaluated on the same tick — Phase 8 may
+  add stagger if simultaneous prefetch storms become a problem.
+- **Date:** 2026-05-16
+
+### Decision: In-flight tracking; full cache interface preserved
+
+- **Choice:** Phase 4 maintains a set of `(npc_id, lod)` pairs that
+  have been issued and not yet completed (in-flight). A second LOD
+  decision that produces an already-in-flight request is suppressed.
+  The `LodPredictor` exposes a `CacheLookup` interface — methods
+  `on_complete(npc_id, lod)`, `on_evict(npc_id, lod)`,
+  `is_resident(npc_id, lod)` — but Phase 4 treats the resident set as
+  unbounded (no evictions are issued by Phase 4 code). Phase 8 will
+  implement bounded cache with distance-weighted LRU behind the same
+  interface.
+- **Reason:** Without in-flight suppression, boundary jitter (even
+  with hysteresis) can still issue duplicate prefetches when the
+  first hasn't completed. Cache hit/miss observability must exist now
+  so KPI reporting in Phase 9 has stable schema; only the **policy**
+  (eviction) is deferred.
+- **Alternatives considered:**
+  - No tracking at all — rejected: visible duplicate prefetches in
+    demo, audience asks "why".
+  - Full bounded cache now — rejected: crosses Phase 8 scope, design
+    will get rewritten.
+- **Implications:** Phase 8 implements the eviction policy and bounded
+  capacity; the interface stays the same.
+- **Date:** 2026-05-16
+
+### Decision: Migrate scenarios — replace `weight_prefetches` with `npcs`
+
+- **Choice:** `Scenario.weight_prefetches` is removed from the schema.
+  `demo.yaml` and `stress.yaml` are rewritten to use `npcs:` waypoint
+  syntax. `ScriptedPredictor` is retained as a baseline that just
+  loads every NPC at LOD0 ignoring distance (the "no-LOD" control
+  group for A/B); it no longer reads `weight_prefetches`.
+- **Reason:** A single scenario schema is easier to teach and
+  document. The old field becomes dead immediately after Phase 4 —
+  every future scenario will be written in `npcs` form. Keeping both
+  doubles documentation and creates ambiguous interaction rules when
+  both are present.
+- **Alternatives considered:**
+  - Keep both schemas — rejected: dead schema rots, schema bloat.
+  - Drop `ScriptedPredictor` entirely — rejected: lose the no-LOD
+    baseline in the 2×2 A/B (scripted/lod × fifo/qos).
+- **Implications:** Both demo scenarios are rewritten this phase.
+  `ScriptedPredictor` is updated to traverse `npcs` and issue LOD0
+  prefetches for every NPC at scenario start (or first waypoint).
+- **Date:** 2026-05-16
+
+---
+
 ## Phase 8 — Multi-core NPU, Eviction, Degradation
 
 ### Decision: NPU core count default = 4

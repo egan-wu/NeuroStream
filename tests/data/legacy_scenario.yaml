@@ -1,0 +1,9 @@
+name: legacy
+duration_ms: 1000
+
+audio:
+  enabled: true
+
+# Old Phase 2 schema — must be rejected after Phase 4 migration.
+weight_prefetches:
+  - { at_ms: 100, npc_id: 1, lod: 0 }

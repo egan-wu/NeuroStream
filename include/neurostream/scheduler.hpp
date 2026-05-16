@@ -6,6 +6,7 @@
 #include "neurostream/transaction.hpp"
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 
 namespace neurostream {
@@ -43,6 +44,11 @@ public:
     };
     const Kpi& kpi() const noexcept { return kpi_; }
 
+    // Callback fired when a weight transaction completes. Lets the predictor
+    // track cache residency. Set to a no-op by default.
+    using CompletionObserver = std::function<void(std::uint32_t npc_id, int lod)>;
+    void set_completion_observer(CompletionObserver obs) { on_complete_ = std::move(obs); }
+
 protected:
     virtual std::unique_ptr<PendingTxn> pick_next() = 0;
     virtual void on_arrive(std::unique_ptr<PendingTxn>) = 0;
@@ -52,12 +58,13 @@ protected:
     void schedule_quantum_end(PendingTxn* p);
     void emit(EventType, const Transaction&, std::uint32_t latency_us = 0);
 
-    const Config& cfg_;
-    Clock&        clock_;
-    EventQueue&   q_;
-    TraceWriter*  trace_;
-    bool          bus_idle_ = true;
-    Kpi           kpi_;
+    const Config&      cfg_;
+    Clock&             clock_;
+    EventQueue&        q_;
+    TraceWriter*       trace_;
+    bool               bus_idle_ = true;
+    Kpi                kpi_;
+    CompletionObserver on_complete_;
 
 private:
     void on_quantum_end(std::unique_ptr<PendingTxn> p);

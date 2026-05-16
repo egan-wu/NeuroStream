@@ -121,22 +121,23 @@ TEST_CASE("invalid LOD throws") {
     CHECK_THROWS_AS(inj.schedule_prefetch(clk, q, sink, 0, 1, 9), std::invalid_argument);
 }
 
-TEST_CASE("ScriptedPredictor schedules every prefetch from scenario") {
+TEST_CASE("ScriptedPredictor loads LOD0 for every NPC at t=0") {
     Clock clk; EventQueue q; RecordingSink sink;
     AIWeightInjector inj(weights_cfg());
 
     Scenario s;
-    s.weight_prefetches = {
-        {100, 1, 0},
-        {300, 2, 1},
-        {500, 3, 2},
+    s.npcs = {
+        NpcSpec{1, {{0, 50.0}}, "normal"},
+        NpcSpec{2, {{0, 20.0}, {1000, 80.0}}, "normal"},
+        NpcSpec{3, {{0,  5.0}}, "normal"},
     };
     ScriptedPredictor p(s);
     p.start(clk, q, inj, sink);
 
     while (q.pop_and_run(clk)) {}
     REQUIRE(sink.txns.size() == 3);
-    CHECK(sink.txns[0].issued_at == 100'000);
-    CHECK(sink.txns[1].issued_at == 300'000);
-    CHECK(sink.txns[2].issued_at == 500'000);
+    for (const auto& tx : sink.txns) {
+        CHECK(tx.issued_at == 0);
+        CHECK(tx.size_bytes == 100u * 1024u * 1024u);   // LOD0 always
+    }
 }

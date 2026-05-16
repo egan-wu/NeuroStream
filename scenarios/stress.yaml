@@ -1,9 +1,14 @@
 name: stress
 duration_ms: 2000
 
-# Combat-burst stress test: overlapping LOD0 weight loads (10 NPCs entering
-# combat range simultaneously) plus a sustained texture burst, racing against
+# Combat-burst stress test: 10 NPCs all rush into LOD0 (combat) range at
+# roughly the same time, alongside a sustained texture burst, racing against
 # the audio stream. This is where FIFO falls behind QoS.
+#
+# Under LodPredictor, the simultaneous distance-crossings produce a burst of
+# weight prefetches around t≈500 ms. Under ScriptedPredictor (baseline), all
+# 10 LOD0 prefetches fire at t=0 — even more punishing for audio.
+
 audio:
   enabled: true
 
@@ -12,14 +17,44 @@ texture_bursts:
     rate_mbps: 500
     duration_ms: 500
 
-weight_prefetches:
-  - { at_ms: 500, npc_id: 1,  lod: 0 }
-  - { at_ms: 500, npc_id: 2,  lod: 0 }
-  - { at_ms: 500, npc_id: 3,  lod: 0 }
-  - { at_ms: 500, npc_id: 4,  lod: 0 }
-  - { at_ms: 500, npc_id: 5,  lod: 0 }
-  - { at_ms: 510, npc_id: 6,  lod: 0 }
-  - { at_ms: 510, npc_id: 7,  lod: 0 }
-  - { at_ms: 510, npc_id: 8,  lod: 0 }
-  - { at_ms: 510, npc_id: 9,  lod: 0 }
-  - { at_ms: 510, npc_id: 10, lod: 0 }
+npcs:
+  - id: 1
+    waypoints:
+      - { at_ms: 0,   distance_m: 80 }
+      - { at_ms: 500, distance_m: 5  }
+  - id: 2
+    waypoints:
+      - { at_ms: 0,   distance_m: 80 }
+      - { at_ms: 500, distance_m: 5  }
+  - id: 3
+    waypoints:
+      - { at_ms: 0,   distance_m: 80 }
+      - { at_ms: 500, distance_m: 5  }
+  - id: 4
+    waypoints:
+      - { at_ms: 0,   distance_m: 80 }
+      - { at_ms: 500, distance_m: 5  }
+  - id: 5
+    waypoints:
+      - { at_ms: 0,   distance_m: 80 }
+      - { at_ms: 500, distance_m: 5  }
+  - id: 6
+    waypoints:
+      - { at_ms: 0,   distance_m: 80 }
+      - { at_ms: 510, distance_m: 5  }
+  - id: 7
+    waypoints:
+      - { at_ms: 0,   distance_m: 80 }
+      - { at_ms: 510, distance_m: 5  }
+  - id: 8
+    waypoints:
+      - { at_ms: 0,   distance_m: 80 }
+      - { at_ms: 510, distance_m: 5  }
+  - id: 9
+    waypoints:
+      - { at_ms: 0,   distance_m: 80 }
+      - { at_ms: 510, distance_m: 5  }
+  - id: 10
+    waypoints:
+      - { at_ms: 0,   distance_m: 80 }
+      - { at_ms: 510, distance_m: 5  }

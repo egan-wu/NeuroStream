@@ -37,6 +37,15 @@ TEST_CASE("loads a valid config and parses every field") {
     CHECK(cfg.scheduler.critical_rate_limit_pct == 5);
     CHECK(cfg.scheduler.bulk_weights.high == 2);
     CHECK(cfg.scheduler.bulk_weights.normal == 1);
+
+    CHECK(cfg.lod_manager.tick_us == 16667);
+    CHECK(cfg.lod_manager.hysteresis_pct == 20);
+    REQUIRE(cfg.lod_manager.bands.size() == 3);
+    CHECK(cfg.lod_manager.bands[0].lod == 0);
+    CHECK(cfg.lod_manager.bands[0].max_distance_m == 10);
+    CHECK(cfg.lod_manager.bands[2].max_distance_m == 100);
+    CHECK(cfg.predictor.policy == "lod");
+
     CHECK(cfg.dma.path == "p2p");
     CHECK(cfg.eviction.policy == "distance_lru");
     CHECK(cfg.degradation.weight_load_timeout_ms == 50);

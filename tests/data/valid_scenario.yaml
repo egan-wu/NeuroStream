@@ -9,10 +9,12 @@ texture_bursts:
     rate_mbps: 500
     duration_ms: 50
 
-weight_prefetches:
-  - at_ms: 100
-    npc_id: 1
-    lod: 0
-  - at_ms: 500
-    npc_id: 2
-    lod: 2
+npcs:
+  - id: 1
+    waypoints:
+      - { at_ms: 0,   distance_m: 80 }
+      - { at_ms: 500, distance_m: 5  }
+  - id: 2
+    waypoints:
+      - { at_ms: 0,    distance_m: 60 }
+      - { at_ms: 1000, distance_m: 35 }

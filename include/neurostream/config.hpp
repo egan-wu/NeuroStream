@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace neurostream {
 
@@ -43,6 +44,21 @@ struct AiWeightsConfig {
     std::string priority;
 };
 
+struct LodBand {
+    int lod;
+    int max_distance_m;
+};
+
+struct LodManagerConfig {
+    int                  tick_us;
+    int                  hysteresis_pct;     // deadband width as % of band max
+    std::vector<LodBand> bands;
+};
+
+struct PredictorConfig {
+    std::string policy;                      // "scripted" | "lod"
+};
+
 struct BulkWeights {
     int high;
     int normal;
@@ -74,6 +90,8 @@ struct Config {
     AudioConfig       audio;
     TextureConfig     texture;
     AiWeightsConfig   ai_weights;
+    LodManagerConfig  lod_manager;
+    PredictorConfig   predictor;
     SchedulerConfig   scheduler;
     DmaConfig         dma;
     EvictionConfig    eviction;

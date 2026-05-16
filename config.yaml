@@ -29,10 +29,28 @@ texture:
   priority: normal
 
 ai_weights:
-  lod0_mb: 100                      # full-resolution
-  lod1_mb: 30                       # mid-tier
-  lod2_mb: 10                       # quantized / behavioral-only
+  # LOD = function tier (not quality grade):
+  #   LOD0 = dialogue LLM
+  #   LOD1 = behavior / reaction NN
+  #   LOD2 = bark / expression NN
+  # See Design_Detail Phase 4 for full rationale.
+  lod0_mb: 100
+  lod1_mb: 30
+  lod2_mb: 10
   priority: high
+
+lod_manager:
+  tick_us: 16667                    # 60 Hz LOD evaluation
+  hysteresis_pct: 20                # deadband width as % of band max
+  bands:
+    - { lod: 0, max_distance_m: 10 }
+    - { lod: 1, max_distance_m: 30 }
+    - { lod: 2, max_distance_m: 100 }
+  # NPCs beyond the last band's max_distance_m get no LOD (FSM-only,
+  # no weight load).
+
+predictor:
+  policy: lod                       # one of: scripted | lod
 
 scheduler:
   policy: qos                       # one of: fifo | qos
