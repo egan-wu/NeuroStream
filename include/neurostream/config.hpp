@@ -97,6 +97,24 @@ struct DmaConfig {
     NeuroDmaConfig  neuro_dma;
 };
 
+struct CpuCompressionConfig {
+    int decompress_cycles_per_byte;
+    int decompress_bandwidth_mbps;
+};
+
+struct InlineHwCompressionConfig {
+    int decompressor_bw_mbps;
+    int setup_cost_cycles;
+};
+
+struct CompressionConfig {
+    std::string                path;            // "none" | "cpu" | "inline_hw"
+    double                     weight_ratio;
+    double                     texture_ratio;
+    CpuCompressionConfig       cpu;
+    InlineHwCompressionConfig  inline_hw;
+};
+
 struct EvictionConfig {
     std::string policy;        // "distance_lru"
 };
@@ -117,6 +135,7 @@ struct Config {
     IntentPredictorConfig intent_predictor;
     SchedulerConfig   scheduler;
     DmaConfig         dma;
+    CompressionConfig compression;
     EvictionConfig    eviction;
     DegradationConfig degradation;
 };

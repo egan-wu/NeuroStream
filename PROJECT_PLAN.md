@@ -147,10 +147,16 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
       half-angle, stopped speed inclusivity, interaction window edges)
 - [ ] Eviction signal when NPC leaves predicted set — deferred to Phase 8
 
-### Phase 7 — Extended Pillar E: Decompressor `[ ]`
-- [ ] Inline decompression stage between DMA and NPU cache
-- [ ] Configurable ratio (2:1) and per-block latency
-- [ ] Optional CPU-fallback path to show contrast
+### Phase 7 — Extended Pillar E: Decompressor `[x]`
+- [x] `compression.path: none | cpu | inline_hw` as independent axis
+- [x] Configurable ratios (weight_ratio, texture_ratio); default 2.0
+- [x] CPU fallback path with explicit `decompress_bandwidth_mbps` cap
+      (~1.5 GB/s software Zstd) and `decompress_cycles_per_byte` for KPI
+- [x] Hardware inline decompressor with `decompressor_bw_mbps` cap
+      (Kraken-class) and setup_cost_cycles
+- [x] `decompress_cycles_used` KPI counter (separate from cpu_cycles_used)
+- [x] CLI `--compression` flag; 5-level improvement ladder in `--ab`
+- [x] Audio explicitly unaffected (own codec path)
 
 ### Phase 8 — Multi-core NPU, Eviction, Degradation `[ ]`
 - [ ] Multi-core NPU model: N execution units, per-core request queue

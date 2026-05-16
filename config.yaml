@@ -75,6 +75,22 @@ scheduler:
     high: 2                         # weight class (AI weights)
     normal: 1                       # texture class
 
+compression:
+  # Decompression path for weight and texture transfers.
+  # Audio uses its own codecs (Opus/AAC) and is unaffected by this.
+  #   none      — uncompressed; bus carries raw bytes (today's baseline)
+  #   cpu       — bus carries compressed; CPU decompresses (slow software)
+  #   inline_hw — bus carries compressed; hardware decompressor (PS5 Kraken)
+  path: inline_hw
+  weight_ratio: 2.0                 # Zstd on quantized weights
+  texture_ratio: 2.0                # Kraken / BCn-class textures
+  cpu:
+    decompress_cycles_per_byte: 5         # KPI cycle counter (story)
+    decompress_bandwidth_mbps: 1500       # service-time bottleneck (~1.5 GB/s Zstd)
+  inline_hw:
+    decompressor_bw_mbps: 16000     # Kraken-class throughput
+    setup_cost_cycles: 1000         # descriptor build (no CPU on payload)
+
 dma:
   # Path used for SSD → NPU weight transfers. Audio and texture have
   # their own DMA engines and are unaffected by this switch.

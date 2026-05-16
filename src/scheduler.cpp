@@ -36,22 +36,18 @@ void Scheduler::accept(const Transaction& tx) {
     p->bytes_remaining = tx.size_bytes;
     p->arrived_at      = clock_.now();
 
-    // Phase 5: weight transactions branch on dma.path. Others use defaults.
+    // Phase 5 / 7: weight transactions branch on dma.path; weight+texture
+    // both apply compression.path adjustments on top.
     const int bus_bw = cfg_.bus.total_bandwidth_mbps;
     if (tx.source == SourceKind::Weight && cfg_.dma.path == "neuro_dma") {
-        // Direct SSD→NPU: full bus bandwidth; quantum = SGL entry size /
-        // bandwidth, giving finer preemption granularity.
         p->effective_bandwidth_mbps = bus_bw;
         long sgl_bytes = cfg_.dma.neuro_dma.sgl_entry_bytes;
-        p->quantum_us = (sgl_bytes + bus_bw - 1) / bus_bw;  // ceil
+        p->quantum_us = (sgl_bytes + bus_bw - 1) / bus_bw;
         if (p->quantum_us <= 0) p->quantum_us = 1;
         p->dma_path = DmaPath::NeuroDma;
         p->cpu_cycles_cost = static_cast<std::uint64_t>(cfg_.dma.neuro_dma.setup_cost_cycles);
         p->sgl_entries = (tx.size_bytes + sgl_bytes - 1) / sgl_bytes;
     } else if (tx.source == SourceKind::Weight) {
-        // Bounce path: effective_bw such that
-        //   1/effective_bw = 2/bus + 1/memcpy  (3-segment serialized model)
-        // ⇒ effective_bw = bus*memcpy / (2*memcpy + bus)
         long bus = bus_bw;
         long mc  = cfg_.dma.bounce.memcpy_bandwidth_mbps;
         p->effective_bandwidth_mbps = static_cast<int>(bus * mc / (2 * mc + bus));
@@ -67,6 +63,37 @@ void Scheduler::accept(const Transaction& tx) {
         p->dma_path = DmaPath::None;
         p->cpu_cycles_cost = 0;
         p->sgl_entries = 1;
+    }
+
+    // Phase 7: compression path. Only weight + texture; audio unaffected.
+    if ((tx.source == SourceKind::Weight || tx.source == SourceKind::Texture)
+        && cfg_.compression.path != "none") {
+        double ratio = (tx.source == SourceKind::Weight)
+                     ? cfg_.compression.weight_ratio
+                     : cfg_.compression.texture_ratio;
+
+        if (cfg_.compression.path == "inline_hw") {
+            // Bus carries compressed bytes → effective bandwidth boosted by
+            // ratio. Hardware decompressor pipeline caps the throughput.
+            double boosted = p->effective_bandwidth_mbps * ratio;
+            double capped  = std::min(boosted,
+                static_cast<double>(cfg_.compression.inline_hw.decompressor_bw_mbps));
+            p->effective_bandwidth_mbps = static_cast<int>(capped);
+            p->cpu_cycles_cost +=
+                static_cast<std::uint64_t>(cfg_.compression.inline_hw.setup_cost_cycles);
+        } else if (cfg_.compression.path == "cpu") {
+            // Bus benefits from compressed-byte transfer, but CPU software
+            // decompression is the true bottleneck. Cap effective bw at the
+            // CPU's decompression throughput.
+            double boosted = p->effective_bandwidth_mbps * ratio;
+            double capped  = std::min(boosted,
+                static_cast<double>(cfg_.compression.cpu.decompress_bandwidth_mbps));
+            p->effective_bandwidth_mbps = static_cast<int>(capped);
+            p->decompress_cycles_cost =
+                static_cast<std::uint64_t>(tx.size_bytes) *
+                static_cast<std::uint64_t>(cfg_.compression.cpu.decompress_cycles_per_byte);
+        }
+        if (p->effective_bandwidth_mbps <= 0) p->effective_bandwidth_mbps = 1;
     }
 
     kpi_.issued++;
@@ -127,8 +154,9 @@ void Scheduler::on_quantum_end(std::unique_ptr<PendingTxn> p) {
         emit(EventType::Complete, p->tx, static_cast<std::uint32_t>(e2e),
              p->dma_path);
         kpi_.completed++;
-        kpi_.cpu_cycles_used += p->cpu_cycles_cost;
-        kpi_.sgl_entries_total += p->sgl_entries;
+        kpi_.cpu_cycles_used        += p->cpu_cycles_cost;
+        kpi_.decompress_cycles_used += p->decompress_cycles_cost;
+        kpi_.sgl_entries_total      += p->sgl_entries;
         if (p->tx.source == SourceKind::Audio) {
             kpi_.audio_completed++;
             kpi_.audio_lat_max = std::max(kpi_.audio_lat_max, e2e);

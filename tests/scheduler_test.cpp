@@ -22,6 +22,11 @@ static Config make_cfg(const std::string& policy) {
     c.dma.bounce.cycles_per_byte = 3;
     c.dma.neuro_dma.sgl_entry_bytes = 1048576;
     c.dma.neuro_dma.setup_cost_cycles = 1000;
+    c.compression.path = "none";
+    c.compression.weight_ratio = 2.0;
+    c.compression.texture_ratio = 2.0;
+    c.compression.cpu = {5, 1500};
+    c.compression.inline_hw = {16000, 1000};
     c.eviction = {"distance_lru"};
     c.degradation = {50};
     return c;

@@ -37,6 +37,11 @@ Config make_cfg() {
     c.dma.path = "neuro_dma";
     c.dma.bounce = {12000, 3};
     c.dma.neuro_dma = {1048576, 1000};
+    c.compression.path = "none";
+    c.compression.weight_ratio = 2.0;
+    c.compression.texture_ratio = 2.0;
+    c.compression.cpu = {5, 1500};
+    c.compression.inline_hw = {16000, 1000};
     c.eviction = {"distance_lru"};
     c.degradation = {50};
     return c;

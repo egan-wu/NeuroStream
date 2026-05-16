@@ -56,6 +56,16 @@ dma:
   neuro_dma:
     sgl_entry_bytes: 1048576
     setup_cost_cycles: 1000
+compression:
+  path: inline_hw
+  weight_ratio: 2.0
+  texture_ratio: 2.0
+  cpu:
+    decompress_cycles_per_byte: 5
+    decompress_bandwidth_mbps: 1500
+  inline_hw:
+    decompressor_bw_mbps: 16000
+    setup_cost_cycles: 1000
 eviction:
   policy: distance_lru
 degradation:

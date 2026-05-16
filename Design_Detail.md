@@ -958,6 +958,124 @@ Cross-cutting decisions made before any phase implementation begins.
 
 ---
 
+## Phase 7 — Decompressor (Pillar E)
+
+### Decision: Compression is its own axis, orthogonal to DMA path
+
+- **Choice:** `config.compression.path: none | cpu | inline_hw` is an
+  independent axis from `config.dma.path`. CLI gains `--compression`
+  alongside `--policy` and `--dma`.
+- **Reason:** Real systems treat decompression and DMA routing as
+  independent hardware blocks. PS5 Kraken and the coherency-bypass
+  DMA engine are physically distinct units. Coupling them in our model
+  would hide the individual value of each technology and break the
+  industry mapping.
+- **Alternatives considered:**
+  - Tied to DMA path (compression auto-enabled on `neuro_dma`,
+    auto-CPU on `bounce`) — rejected: loses independent variable.
+- **Implications:** A/B grows from 4 (policy × dma) to 12 combinations
+  in principle, though we focus on the "5-level improvement ladder"
+  for demonstration: baseline → +qos → +neuro_dma → +cpu compression
+  → +hw compression.
+- **Date:** 2026-05-16
+
+### Decision: Compression applies to weight and texture only
+
+- **Choice:** Audio transactions are unaffected by `compression.path`.
+  Only weight and texture transactions read the compression branch.
+- **Reason:** Audio uses dedicated codecs (Opus, AAC) processed by
+  the audio mixer's own pipeline. Modeling audio compression in our
+  bus would muddy the story and contradict industry hardware reality.
+  Texture compression (BCn / Kraken-textured) and weight compression
+  (Zstd-on-quantized) are the two real targets for an I/O-side
+  decompressor.
+- **Alternatives considered:**
+  - All sources branch — rejected: physically wrong for audio.
+- **Implications:** Audio P99 KPI is unaffected by compression
+  config; texture and weight latency / bus-utilization observable
+  effects.
+- **Date:** 2026-05-16
+
+### Decision: 2.0 default compression ratio for both weight and texture
+
+- **Choice:** `compression.weight_ratio: 2.0`,
+  `compression.texture_ratio: 2.0`. Both tunable.
+- **Reason:** Industry mid-range:
+  - Kraken on textures: 1.8–2.5× compression
+  - Zstd on quantized AI weights: 1.5–3.0×
+  - LZ4 on textures: 1.6–2.2×
+  - 2.0 is defensible center; user can tune for specific workloads.
+- **Alternatives considered:**
+  - 3.0× — over-promises (Zstd best case, not typical).
+  - 1.5× — under-promises (Kraken does better than this).
+- **Implications:** Effective bus bandwidth for compressed traffic
+  is `bus_bw × ratio`; tunable per source.
+- **Date:** 2026-05-16
+
+### Decision: Three-path service-time model
+
+- **Choice:** Each weight/texture transaction's effective service
+  bandwidth depends on `(dma.path, compression.path)`:
+  ```
+  bounce + none:       1/eff = 2/bus + 1/memcpy           (Phase 5)
+  bounce + cpu:        1/eff = (1+1/ratio)/bus + 1/decompress + memcpy_overhead
+  bounce + inline_hw:  not modeled (warned at config load — physically odd)
+  neuro_dma + none:    eff = bus_bw                        (Phase 5)
+  neuro_dma + cpu:     eff = bus_bw / (1 + 1/ratio)        (still goes through CPU)
+  neuro_dma + inline_hw: eff = min(bus_bw × ratio, decompressor_bw)
+  ```
+  Decompressor throughput defaults to 16 GB/s (matching the bus —
+  Kraken in real PS5 sustains roughly bus-class throughput).
+- **Reason:** This model captures the real physics:
+  - inline_hw moves compressed bytes only on the bus → effective
+    uncompressed throughput exceeds raw bus_bw
+  - cpu compression still moves compressed first then decompressed,
+    with CPU's slow software decompression as the dominant cost
+- **Alternatives considered:**
+  - Single "effective bandwidth × ratio" formula — rejected: oversimplifies
+    the cpu path (it's not just 1/ratio faster on bus, it's CPU-bottlenecked)
+  - Per-segment full pipeline modeling — rejected: complexity without
+    proportional fidelity gain
+- **Implications:** Scheduler::accept computes effective_bandwidth_mbps
+  via path-specific formula at admission time.
+- **Date:** 2026-05-16
+
+### Decision: CPU decompression cost — 5 cycles/byte
+
+- **Choice:** `compression.cpu.decompress_cycles_per_byte: 5` (default).
+  Implies single-thread Zstd at ~1.5 GB/s on a 3 GHz CPU. Tracked
+  separately from memcpy cycles in KPI as `decompress_cycles_used`.
+- **Reason:** Industry benchmark range for Zstd software decompression:
+  3-7 cycles/byte on x86_64 with SIMD. 5 is mid-range. This number
+  is what makes the cpu compression path measurably slower than the
+  no-compression path — exactly matching real-world observation.
+- **Alternatives considered:**
+  - 1 cycle/byte (hand-tuned SIMD) — rejected: too optimistic.
+  - 10 cycles/byte (older code) — rejected: too pessimistic for 2026.
+- **Implications:** `Scheduler::Kpi` gains `decompress_cycles_used`.
+  The cpu path produces > 10× more decompression cycles than memcpy
+  cycles, dominating CPU cost.
+- **Date:** 2026-05-16
+
+### Decision: KPI gains `decompress_cycles_used`; trace schema unchanged
+
+- **Choice:** Add `decompress_cycles_used` to `Scheduler::Kpi`.
+  Trace schema v2 is unchanged — individual transaction records do
+  not carry compression info because all transactions in a single run
+  share the same `compression.path`.
+- **Reason:** A/B comparison happens at the run level (re-run with
+  different config), not per-transaction. Adding compression columns
+  to trace would inflate file size for no analysis benefit. The KPI
+  summary suffices.
+- **Alternatives considered:**
+  - Trace schema v3 with compression columns — rejected: bloat with
+    no payoff at current scope.
+- **Implications:** Future per-transaction decompression-tier work
+  would bump schema to v3 then.
+- **Date:** 2026-05-16
+
+---
+
 ## Phase 8 — Multi-core NPU, Eviction, Degradation
 
 ### Decision: NPU core count default = 4

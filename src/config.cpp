@@ -120,6 +120,21 @@ Config load_config(const std::filesystem::path& path) {
     c.dma.neuro_dma.setup_cost_cycles =
         as<int>(ndma, "setup_cost_cycles", "dma.neuro_dma");
 
+    auto cp = require(root, "compression", "");
+    c.compression.path           = as<std::string>(cp, "path", "compression");
+    c.compression.weight_ratio   = as<double>(cp, "weight_ratio", "compression");
+    c.compression.texture_ratio  = as<double>(cp, "texture_ratio", "compression");
+    auto cpcpu = require(cp, "cpu", "compression");
+    c.compression.cpu.decompress_cycles_per_byte =
+        as<int>(cpcpu, "decompress_cycles_per_byte", "compression.cpu");
+    c.compression.cpu.decompress_bandwidth_mbps =
+        as<int>(cpcpu, "decompress_bandwidth_mbps", "compression.cpu");
+    auto cphw = require(cp, "inline_hw", "compression");
+    c.compression.inline_hw.decompressor_bw_mbps =
+        as<int>(cphw, "decompressor_bw_mbps", "compression.inline_hw");
+    c.compression.inline_hw.setup_cost_cycles =
+        as<int>(cphw, "setup_cost_cycles", "compression.inline_hw");
+
     auto ev = require(root, "eviction", "");
     c.eviction.policy = as<std::string>(ev, "policy", "eviction");
 

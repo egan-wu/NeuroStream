@@ -28,9 +28,11 @@ struct PendingTxn {
     Time          quantum_us = 0;
     // Path used by this transaction (only meaningful for weight; None for others)
     DmaPath       dma_path = DmaPath::None;
-    // CPU cycles to charge on completion (size × cycles_per_byte for bounce,
-    // setup_cost_cycles for neuro_dma, 0 for audio/texture)
+    // CPU cycles to charge on completion (memcpy + setup; excludes
+    // decompression which is tracked separately)
     std::uint64_t cpu_cycles_cost = 0;
+    // Decompression cycles (Phase 7) — only nonzero on cpu compression path
+    std::uint64_t decompress_cycles_cost = 0;
     // Number of SGL entries (concept label, 1 for bounce/non-weight)
     std::uint32_t sgl_entries = 1;
 };
@@ -59,6 +61,8 @@ public:
         // Phase 5: total CPU cycles consumed by DMA bookkeeping/memcpy across
         // all weight transactions (huge for bounce, tiny for neuro_dma).
         std::uint64_t cpu_cycles_used = 0;
+        // Phase 7: cycles burned on software decompression specifically.
+        std::uint64_t decompress_cycles_used = 0;
         // Phase 5: total SGL entries issued (concept-only label).
         std::uint64_t sgl_entries_total = 0;
     };

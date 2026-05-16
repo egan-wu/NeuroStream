@@ -55,6 +55,13 @@ TEST_CASE("loads a valid config and parses every field") {
     CHECK(cfg.dma.bounce.cycles_per_byte == 3);
     CHECK(cfg.dma.neuro_dma.sgl_entry_bytes == 1048576);
     CHECK(cfg.dma.neuro_dma.setup_cost_cycles == 1000);
+
+    CHECK(cfg.compression.path == "inline_hw");
+    CHECK(cfg.compression.weight_ratio == doctest::Approx(2.0));
+    CHECK(cfg.compression.texture_ratio == doctest::Approx(2.0));
+    CHECK(cfg.compression.cpu.decompress_cycles_per_byte == 5);
+    CHECK(cfg.compression.inline_hw.decompressor_bw_mbps == 16000);
+    CHECK(cfg.compression.inline_hw.setup_cost_cycles == 1000);
     CHECK(cfg.eviction.policy == "distance_lru");
     CHECK(cfg.degradation.weight_load_timeout_ms == 50);
 }
