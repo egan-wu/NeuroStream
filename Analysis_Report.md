@@ -304,10 +304,16 @@ realistic reflection of which model is *applicable* at each distance.
 
 **Engineering honesty — the stress scenario shows LOD's cost**:
 
-| Predictor (stress) | Weight Bytes | Audio Drops (FIFO) |
-|--------------------|-------------:|-------------------:|
-| ScriptedPredictor | 1,000 MB | 0 |
-| LodPredictor | 1,400 MB | 416 |
+| Predictor (stress) | Weight Bytes | Audio Drops (FIFO) | Audio Drops (QoS) |
+|--------------------|-------------:|-------------------:|------------------:|
+| ScriptedPredictor | 1,000 MB | 0 | 0 |
+| LodPredictor | 1,400 MB | 416 | **0** |
+
+**Important reading**: the audio-drop column under FIFO is for the
+baseline (no-QoS) configuration only. **In the shipping configuration
+(QoS), audio survives in all scenarios** — Phase 3 protects audio
+regardless of how messy the predictor is. Phase 4's actual failure
+mode is therefore purely *bandwidth waste*, not audio loss.
 
 When **all** 10 NPCs converge to LOD0 range, LodPredictor first issues
 LOD2 (cold-start, conservative), then LOD1 (intermediate band), then
@@ -315,13 +321,103 @@ LOD0 — three superseded loads per NPC. This is the engineering
 tradeoff:
 
 - **LOD wins in open-world** (most NPCs stay distant)
-- **LOD loses in combat-rush** (all NPCs converge)
-- **The fix is Phase 6** — velocity-aware spatial predictor that skips
-  intermediate tiers when distance is dropping fast
+- **LOD loses in convergent motion** (all NPCs heading inward)
+- **The deeper failure** is described in §6 below — distance alone is
+  not a reliable interaction signal
 
-**This honest tradeoff is the strongest interview signal**: it shows
-the engineer thought about *when the design fails*, not just when it
-shines.
+---
+
+## 5b. The Distance-Only LOD Fallacy — A Deeper Failure
+
+The Phase 4 stress regression is the *visible* symptom of a more
+fundamental design flaw: **distance is a weak predictor of player
+interaction intent**. A worst-case scenario that current LodPredictor
+handles badly:
+
+> **Player walks through a 50-NPC town without stopping or talking.**
+
+Distance-only LOD will:
+
+1. See each NPC's distance drop as the player approaches → trigger
+   LOD2 → LOD1 → LOD0 prefetches
+2. Load 100 MB dialogue LLMs for every NPC the player walks past
+3. Player never interacts, never stops, never even looks → all loaded
+   models are pure waste
+4. 50 NPCs × 100 MB = **5 GB of wasted bus traffic for a 5-second
+   stroll**
+
+This is 5× worse than the Phase 4 stress regression. **Distance is a
+proxy for "could the player interact" — not for "will they"**. The
+two diverge constantly in real gameplay.
+
+### Industry signals for true intent prediction
+
+Real games (GTA V, Witcher 3, Cyberpunk 2077) use richer signals,
+roughly in order of confidence:
+
+| Signal | Meaning | Where used |
+|--------|---------|-----------|
+| Explicit interact button | Player committed to interaction | All major engines |
+| Stopped + facing NPC | Player chose to engage | Witcher 3, GTA V |
+| Gaze direction held > 200 ms | Player is paying attention | Cyberpunk 2077 |
+| Player slowing down | Possibly approaching to engage | Probabilistic |
+| Distance shrinking | Could be approaching, or passing | Weak — current LodPredictor |
+| Distance alone | Could-be-relevant set | Weakest |
+
+### What this implies for NeuroStream
+
+LOD selection should compute an **interaction probability** per
+NPC, blending these signals:
+
+```
+p_interact(npc, player) =
+    0.0
+  + 0.2 × in_proximity(distance < 10 m)
+  + 0.3 × facing_alignment(< 30° from camera)
+  + 0.4 × player_stopped_nearby(speed < 1 m/s ∧ dist < 5 m)
+  + 1.0 × explicit_interact_button (overrides all)
+```
+
+LOD mapping then becomes:
+
+```
+p ≥ 0.7 → LOD0  (load dialogue LLM)
+p ≥ 0.3 → LOD1  (behavior NN)
+distance < 100 m → LOD2  (bark NN — passive)
+else    → no LOD
+```
+
+Town-traversal under this model: player never stops or faces an NPC →
+`p` stays at 0.2 → every NPC only ever loads LOD2 (10 MB). Total:
+50 × 10 MB = **500 MB instead of 5 GB** — a 90 % saving on the worst
+gameplay pattern.
+
+### Combined with PS5's fast SSD: tiered upgrade on commit
+
+When the player *does* commit (presses interact), the dialogue model
+isn't ready yet (100 MB ≈ 6 ms on a 16 GB/s bus). Real-world fix:
+
+1. **Pre-load LOD1** (30 MB ≈ 2 ms) when facing + stopped detected
+2. **Dialogue opens with LOD1 model** — basic responses
+3. **Background-load LOD0** while conversation is in early lines
+4. **Seamless upgrade** to full LLM mid-conversation
+
+This is the *inverse* of Pillar G (Graceful Degradation): **graceful
+upgrade** under explicit interaction commitment.
+
+### Where in the roadmap this fits
+
+| Fix | Solves | Phase |
+|-----|--------|------|
+| Velocity look-ahead (skip intermediate tiers) | Phase 4 stress regression | 6 |
+| Player position + facing in scenario | Schema basis for intent | 6 |
+| Interaction probability replaces pure distance | Town-traversal waste | 6 |
+| Explicit interact event in scenario YAML | Commit-driven loading | 6 |
+| Tiered upgrade (LOD1 then LOD0) | Dialogue-startup latency | 8 (needs cache + eviction) |
+
+The Phase 6 vision is therefore broader than "frustum-aware
+prefetch" — it is **intent-aware** prefetch. This was hidden inside
+the "Spatial Predictor" pillar but is the more accurate framing.
 
 ---
 

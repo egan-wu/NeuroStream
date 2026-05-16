@@ -121,10 +121,17 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [ ] Account for CPU cycles consumed in each path
 - [ ] Verify NPU receives identical bytes in both paths (correctness)
 
-### Phase 6 — Extended Pillar D: Spatial Predictor `[ ]`
-- [ ] Player kinematics model (position, velocity, view frustum)
-- [ ] Predicted-intersection horizon (e.g. 2s lookahead)
-- [ ] Prefetch queue feeding LOD Manager
+### Phase 6 — Extended Pillar D: Intent-Aware Predictor `[ ]`
+> Broader than originally framed. Distance alone is a weak interaction
+> signal — see `Analysis_Report.md` §5b. Phase 6 replaces distance-only
+> LOD with intent-aware prediction.
+- [ ] Player kinematics: position, velocity, facing angle in scenario
+- [ ] Per-NPC interaction probability function (blend of signals)
+- [ ] Velocity look-ahead (fixes Phase 4 stress regression — skip
+      intermediate tiers when distance is dropping fast)
+- [ ] Facing / gaze detection (fixes town-traversal waste)
+- [ ] Explicit interact event in scenario YAML (commit-driven LOD0)
+- [ ] Per-NPC priority override (quest NPCs always-LOD0)
 - [ ] Eviction signal when NPC leaves predicted set
 
 ### Phase 7 — Extended Pillar E: Decompressor `[ ]`
