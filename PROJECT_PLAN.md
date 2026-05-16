@@ -125,18 +125,22 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] `--dma bounce|neuro_dma` CLI flag; A/B is now 2×2 (policy × dma)
 - [x] Audio/texture unaffected (`SourceKind` branch in scheduler)
 
-### Phase 6 — Extended Pillar D: Intent-Aware Predictor `[ ]`
+### Phase 6 — Extended Pillar D: Intent-Aware Predictor `[x]`
 > Broader than originally framed. Distance alone is a weak interaction
 > signal — see `Analysis_Report.md` §5b. Phase 6 replaces distance-only
 > LOD with intent-aware prediction.
-- [ ] Player kinematics: position, velocity, facing angle in scenario
-- [ ] Per-NPC interaction probability function (blend of signals)
-- [ ] Velocity look-ahead (fixes Phase 4 stress regression — skip
-      intermediate tiers when distance is dropping fast)
-- [ ] Facing / gaze detection (fixes town-traversal waste)
-- [ ] Explicit interact event in scenario YAML (commit-driven LOD0)
-- [ ] Per-NPC priority override (quest NPCs always-LOD0)
-- [ ] Eviction signal when NPC leaves predicted set
+- [x] Player kinematics: 2D position + velocity + facing in scenario v3
+- [x] Hierarchical 8-rule cascade (replaces probability blend per
+      industry convention: state machines, not weighted sums)
+- [x] Velocity look-ahead (500 ms) — uses min(current_dist, future_dist)
+- [x] Frustum FOV cone (not raw facing dot product)
+- [x] Explicit interact event with `duration_ms` (commit-driven LOD0)
+- [x] Per-NPC priority override (`quest` → always LOD0)
+- [x] NPC velocity derived from waypoints; used in rule 5 (approaching)
+- [x] Scenario schema v3 with explicit `schema_version` field; v1/v2
+      rejected with migration hints
+- [x] New `town.yaml` scenario demonstrating §5b fix
+- [ ] Eviction signal when NPC leaves predicted set — deferred to Phase 8
 
 ### Phase 7 — Extended Pillar E: Decompressor `[ ]`
 - [ ] Inline decompression stage between DMA and NPU cache

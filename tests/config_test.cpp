@@ -44,7 +44,11 @@ TEST_CASE("loads a valid config and parses every field") {
     CHECK(cfg.lod_manager.bands[0].lod == 0);
     CHECK(cfg.lod_manager.bands[0].max_distance_m == 10);
     CHECK(cfg.lod_manager.bands[2].max_distance_m == 100);
-    CHECK(cfg.predictor.policy == "lod");
+    CHECK(cfg.predictor.policy == "intent");
+    CHECK(cfg.intent_predictor.fov_deg == 120);
+    CHECK(cfg.intent_predictor.look_ahead_ms == 500);
+    CHECK(cfg.intent_predictor.close_m == 10);
+    CHECK(cfg.intent_predictor.stopped_dist_m == doctest::Approx(5.0));
 
     CHECK(cfg.dma.path == "neuro_dma");
     CHECK(cfg.dma.bounce.memcpy_bandwidth_mbps == 12000);

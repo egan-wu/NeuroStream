@@ -50,7 +50,22 @@ lod_manager:
   # no weight load).
 
 predictor:
-  policy: lod                       # one of: scripted | lod
+  policy: intent                    # one of: scripted | lod | intent
+
+intent_predictor:
+  # Frustum field-of-view (full cone width in degrees). 120 ≈ typical
+  # third-person camera.
+  fov_deg: 120
+  # Linear extrapolation horizon for "where will this NPC be soon".
+  look_ahead_ms: 500
+  # Thresholds (re-used from lod_manager.bands implicitly: close/near/visible).
+  # Override here if the intent predictor needs different values from the
+  # distance-only LodPredictor.
+  close_m: 10                       # LOD0 candidate distance
+  near_m: 30                        # LOD1 candidate distance
+  visible_m: 100                    # LOD2 candidate distance
+  stopped_dist_m: 5.0               # "stopped near NPC" distance
+  stopped_speed_m_s: 1.0            # player speed below which counts as stopped
 
 scheduler:
   policy: qos                       # one of: fifo | qos

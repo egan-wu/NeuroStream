@@ -127,9 +127,9 @@ TEST_CASE("ScriptedPredictor loads LOD0 for every NPC at t=0") {
 
     Scenario s;
     s.npcs = {
-        NpcSpec{1, {{0, 50.0}}, "normal"},
-        NpcSpec{2, {{0, 20.0}, {1000, 80.0}}, "normal"},
-        NpcSpec{3, {{0,  5.0}}, "normal"},
+        NpcSpec{1, {{0, {50.0, 0.0}, {}}}, "normal"},
+        NpcSpec{2, {{0, {20.0, 0.0}, {}}, {1000, {80.0, 0.0}, {}}}, "normal"},
+        NpcSpec{3, {{0, { 5.0, 0.0}, {}}}, "normal"},
     };
     ScriptedPredictor p(s);
     p.start(clk, q, inj, sink);

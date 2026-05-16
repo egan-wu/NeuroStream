@@ -1,55 +1,53 @@
+schema_version: 3
 name: world
 duration_ms: 5000
 
-# Open-world traversal: 10 NPCs at varied distances. Only 2 ever come close
-# enough to need LOD0; most stay in LOD2 or LOD1 range. This is where
-# LodPredictor's bandwidth savings versus ScriptedPredictor become visible —
-# scripted loads all 10 at LOD0 (1000 MB), lod loads ~2 LOD0 + 3 LOD1 + 5 LOD2
-# (~340 MB).
+# Open-world traversal: 10 NPCs, varied positions. Player walks east along
+# y=0. Two NPCs end up close to the player's path; most stay distant. This
+# shows the LOD-style savings.
 
-audio:
-  enabled: true
+audio: { enabled: true }
 
-# A single mid-game texture burst.
+player:
+  waypoints:
+    - { at_ms: 0,    pos: {x:  0, y: 0}, facing_deg: 0 }
+    - { at_ms: 5000, pos: {x: 50, y: 0}, facing_deg: 0 }
+
 texture_bursts:
-  - at_ms: 2500
-    rate_mbps: 500
-    duration_ms: 100
+  - { at_ms: 2500, rate_mbps: 500, duration_ms: 100 }
 
 npcs:
   # Quest companions — come into LOD0 range
   - id: 1
     waypoints:
-      - { at_ms: 0,    distance_m: 30 }
-      - { at_ms: 2000, distance_m: 5  }
-      - { at_ms: 5000, distance_m: 5  }
+      - { at_ms: 0,    pos: {x: 30, y: 0} }
+      - { at_ms: 2000, pos: {x: 25, y: 0} }
+      - { at_ms: 5000, pos: {x: 50, y: 0} }
   - id: 2
     waypoints:
-      - { at_ms: 0,    distance_m: 25 }
-      - { at_ms: 3000, distance_m: 8  }
-
+      - { at_ms: 0,    pos: {x: 25, y: 0} }
+      - { at_ms: 3000, pos: {x: 18, y: 0} }
   # Combat-range NPCs (LOD1 mostly)
   - id: 3
     waypoints:
-      - { at_ms: 0,    distance_m: 25 }
-      - { at_ms: 5000, distance_m: 22 }
+      - { at_ms: 0,    pos: {x: 25, y: 15} }
+      - { at_ms: 5000, pos: {x: 22, y: 15} }
   - id: 4
     waypoints:
-      - { at_ms: 0,    distance_m: 28 }
-      - { at_ms: 5000, distance_m: 28 }
+      - { at_ms: 0,    pos: {x: 28, y: -10} }
+      - { at_ms: 5000, pos: {x: 28, y: -10} }
   - id: 5
     waypoints:
-      - { at_ms: 0,    distance_m: 20 }
-      - { at_ms: 5000, distance_m: 25 }
-
+      - { at_ms: 0,    pos: {x: 20, y: 20} }
+      - { at_ms: 5000, pos: {x: 25, y: 20} }
   # Distant ambient NPCs (LOD2)
   - id: 6
-    waypoints: [ { at_ms: 0, distance_m: 80 }, { at_ms: 5000, distance_m: 75 } ]
+    waypoints: [ { at_ms: 0, pos: {x: 80, y: 30} } ]
   - id: 7
-    waypoints: [ { at_ms: 0, distance_m: 60 }, { at_ms: 5000, distance_m: 65 } ]
+    waypoints: [ { at_ms: 0, pos: {x: 60, y: 50} } ]
   - id: 8
-    waypoints: [ { at_ms: 0, distance_m: 90 }, { at_ms: 5000, distance_m: 95 } ]
+    waypoints: [ { at_ms: 0, pos: {x: 90, y: -20} } ]
   - id: 9
-    waypoints: [ { at_ms: 0, distance_m: 70 }, { at_ms: 5000, distance_m: 72 } ]
+    waypoints: [ { at_ms: 0, pos: {x: 70, y: 40} } ]
   - id: 10
-    waypoints: [ { at_ms: 0, distance_m: 85 }, { at_ms: 5000, distance_m: 80 } ]
+    waypoints: [ { at_ms: 0, pos: {x: 85, y: -50} } ]

@@ -801,6 +801,163 @@ Cross-cutting decisions made before any phase implementation begins.
 
 ---
 
+## Phase 6 — Intent-Aware Predictor
+
+### Decision: Player position is 2D `(x, y)` with explicit facing angle
+
+- **Choice:** Scenario carries player position as 2D `{x, y}` plus
+  `facing_deg`. NPCs likewise use 2D positions. Phase 4's 1D
+  `distance_m` field is removed entirely.
+- **Reason:** Industry AI subsystems (Unreal Significance Manager,
+  Unity AI, GTA V crowd manager) operate primarily in 2D — vertical
+  axis is rarely a factor in "should I preload this NPC's model".
+  1D distance cannot distinguish "passing by" from "walking up to",
+  which is the root cause of the §5b town-traversal waste. 3D adds
+  height that doesn't influence I/O decisions.
+- **Alternatives considered:**
+  - 1D distance — rejected: cannot model passing-by vs heading-toward.
+  - 3D `(x, y, z)` + full `Rotator` — rejected: pitch/roll/z don't
+    drive NPC interaction decisions in any major engine.
+- **Implications:** Scenario schema v3; loader migrated; LOD/intent
+  predictors compute distance via Euclidean from 2D coords.
+- **Date:** 2026-05-16
+
+### Decision: Decision algorithm — hierarchical cascade, not weighted probability
+
+- **Choice:** `IntentPredictor` runs a fixed-order rule chain. Each
+  rule is a C++ method that inspects current state and returns either
+  a LOD decision (0/1/2) or "no match, try next rule". First match
+  wins. Thresholds live in `config.yaml`; rule order lives in code.
+- **Reason:** Real industry intent systems are state machines or
+  conditional cascades (NVIDIA ACE, Cyberpunk 2077, Witcher 3, Inworld
+  AI). No mainstream game uses a "weighted probability sum" — that
+  pattern is academic, not engineering. Cascade is more debuggable
+  ("rule 3 fired"), more testable (deterministic), and maps cleanly
+  to a future ML-based replacement (each rule becomes a classifier).
+- **Rule chain (Phase 6 v1)**:
+  1. NPC priority = `quest`  → LOD0
+  2. Active interact command (within duration) → LOD0
+  3. Player stopped within `stopped_dist_m` and NPC in frustum → LOD0
+  4. NPC in frustum within `close_m` → LOD1
+  5. NPC in frustum within `near_m` and approaching (relative velocity) → LOD1
+  6. NPC in frustum within `near_m` → LOD2
+  7. NPC within `visible_m` (frustum or not) → LOD2
+  8. else → no LOD
+- **Alternatives considered:**
+  - Weighted linear probability `Σ wᵢ·xᵢ → threshold mapping` —
+    rejected: no industry precedent, hard to debug ("why p=0.65?"),
+    weight tuning becomes a nightmare.
+  - Pure threshold-tree without priority — rejected: cannot represent
+    quest-NPC override cleanly.
+- **Implications:** Adding/changing a rule = editing one method.
+  Future ML predictor swaps the cascade for a learned policy behind
+  the same `Predictor` interface.
+- **Date:** 2026-05-16
+
+### Decision: Velocity look-ahead = 500 ms, linear extrapolation
+
+- **Choice:** `IntentPredictor` extrapolates each NPC's position
+  `look_ahead_ms` (default 500) into the future using current relative
+  velocity, then runs cascade rules against both current and future
+  positions; takes the **smaller** required LOD number (closer of the
+  two predictions). Configurable per scenario via
+  `intent_predictor.look_ahead_ms`.
+- **Reason:** Matches Unreal texture streaming convention (300–500
+  ms). 500 ms is two orders of magnitude longer than the worst weight
+  load (neuro_dma: ~6.5 ms for 100 MB) — plenty of head start. Fixes
+  the Phase 4 stress regression directly: a NPC approaching at 150
+  m/s is seen as already in LOD0 range, skipping wasted LOD2/LOD1
+  prefetches.
+- **Alternatives considered:**
+  - 1000–2000 ms — rejected: longer horizon, more over-prefetch on
+    NPCs that change direction.
+  - Kalman filter / acceleration model — rejected: noise amplification,
+    not used in practice for prefetch decisions.
+- **Implications:** `Predictor` reads waypoint velocities and projects
+  forward. NPC velocity is derived directly from waypoint slopes
+  (linear interpolation, free).
+- **Date:** 2026-05-16
+
+### Decision: Frustum FOV cone for visibility, not facing dot product
+
+- **Choice:** Visibility uses a frustum FOV check:
+  `cos(angle_player_to_npc) ≥ cos(fov_deg / 2)` AND `distance ≤
+  visible_m`. The `fov_deg` is configurable (default 120 = ±60°
+  half-cone, matching typical third-person camera).
+- **Reason:** All 3D games use frustum, not raw facing. Frustum
+  encodes "field of view" — NPCs at the edge of vision are
+  legitimately visible, NPCs behind the player are not. The math
+  cost (same dot-product) is identical to a facing-only check, but
+  the semantic is real.
+- **Alternatives considered:**
+  - Facing angle dot product (Phase 6 plan v1) — rejected: doesn't
+    model camera FOV, less realistic.
+  - Real frustum with occlusion — rejected: requires scene geometry,
+    out of scope for behavioral simulator.
+- **Implications:** Config exposes `fov_deg`. NPCs outside frustum
+  are not eligible for LOD0/LOD1 by the cascade (only LOD2 via
+  rule 7).
+- **Date:** 2026-05-16
+
+### Decision: Scenario schema v3 with explicit `schema_version` field
+
+- **Choice:** Top-level `schema_version: 3` field is **required**.
+  Loader rejects missing/older versions with a migration hint pointing
+  at `docs/scenario-schema.md`. The Phase 4 `npcs.waypoints[].distance_m`
+  field is fully removed (no shim, no auto-upgrade).
+- **Reason:** Phase 4 → Phase 6 is a breaking schema change. Explicit
+  versioning means errors are caught at load time with clear messages,
+  not silent misinterpretation. Future Phase 7/8/X schema bumps follow
+  the same protocol.
+- **Alternatives considered:**
+  - Auto-detect by field presence — rejected: ambiguous (what if both
+    `distance_m` and `pos` exist?), brittle.
+  - Maintain v2 and v3 in parallel — rejected: dead schema rots.
+- **Implications:** `scenarios/demo.yaml`, `world.yaml`, `stress.yaml`
+  rewritten in v3. Test fixtures updated. New `town.yaml` added to
+  demonstrate §5b fix.
+- **Date:** 2026-05-16
+
+### Decision: Interact commands carry an explicit `duration_ms`
+
+- **Choice:** `interactions: [{at_ms, npc_id, duration_ms}]`. During
+  the active window, rule 2 of the cascade fires and forces LOD0
+  for that NPC, regardless of position or velocity.
+- **Reason:** Real dialogue in games is sustained (the conversation
+  takes time). "Instant" interaction events under-model the lock-in.
+  Witcher 3 / Mass Effect / Cyberpunk all lock the camera and player
+  to the NPC for the dialogue duration.
+- **Alternatives considered:**
+  - Instant (single-tick) interact — rejected: ignores dialogue
+    duration, drops LOD0 immediately as player position drifts.
+  - "Until player walks away" — rejected: couples to position logic,
+    fragile (what if player faces away during dialogue?).
+- **Implications:** Predictor tracks active interactions in a map
+  keyed by NPC. Tests cover both the start and the natural expiry.
+- **Date:** 2026-05-16
+
+### Decision: NPC velocity is derived from waypoints; included in cascade
+
+- **Choice:** Each NPC's instantaneous velocity is computed from the
+  waypoint slope at the current tick (same way the player's is). Rule
+  5 ("approaching") uses **relative velocity** between player and NPC:
+  if the NPC is moving toward the player faster than the player is
+  receding, it counts as approaching.
+- **Reason:** Adding NPC velocity is computationally free (the
+  waypoint linear-interpolation already produces it as the derivative).
+  The Phase 4 stress regression is specifically "NPCs approaching
+  fast" — ignoring NPC velocity makes the look-ahead fix incomplete.
+- **Alternatives considered:**
+  - Static NPCs only (no velocity tracking) — rejected: leaves the
+    stress regression half-fixed.
+  - Rolling history average velocity — rejected: marginal accuracy
+    gain, noise concerns, deferred to backlog.
+- **Implications:** All NPC waypoints with ≥2 points produce a
+  velocity. Single-waypoint NPCs have velocity 0.
+- **Date:** 2026-05-16
+
+---
+
 ## Phase 8 — Multi-core NPU, Eviction, Degradation
 
 ### Decision: NPU core count default = 4

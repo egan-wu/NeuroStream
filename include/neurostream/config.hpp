@@ -56,7 +56,17 @@ struct LodManagerConfig {
 };
 
 struct PredictorConfig {
-    std::string policy;                      // "scripted" | "lod"
+    std::string policy;                      // "scripted" | "lod" | "intent"
+};
+
+struct IntentPredictorConfig {
+    int    fov_deg;
+    int    look_ahead_ms;
+    int    close_m;
+    int    near_m;
+    int    visible_m;
+    double stopped_dist_m;
+    double stopped_speed_m_s;
 };
 
 struct BulkWeights {
@@ -101,9 +111,10 @@ struct Config {
     NpuConfig         npu;
     AudioConfig       audio;
     TextureConfig     texture;
-    AiWeightsConfig   ai_weights;
-    LodManagerConfig  lod_manager;
-    PredictorConfig   predictor;
+    AiWeightsConfig       ai_weights;
+    LodManagerConfig      lod_manager;
+    PredictorConfig       predictor;
+    IntentPredictorConfig intent_predictor;
     SchedulerConfig   scheduler;
     DmaConfig         dma;
     EvictionConfig    eviction;

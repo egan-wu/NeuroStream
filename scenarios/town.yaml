@@ -1,0 +1,59 @@
+schema_version: 3
+name: town
+duration_ms: 8000
+
+# §5b case study: player walks through a town of 20 NPCs without interacting.
+# Distance-only LOD would load LOD0 for every NPC passed within 10m.
+# IntentPredictor with frustum + velocity should NOT load LOD0 because the
+# player never stops or faces any NPC — they're all just passing-by ambient.
+
+audio: { enabled: true }
+
+# Player walks east along y=0, 8 seconds, 50m east.
+player:
+  waypoints:
+    - { at_ms: 0,    pos: {x:  0, y: 0}, facing_deg: 0 }
+    - { at_ms: 8000, pos: {x: 80, y: 0}, facing_deg: 0 }
+
+# 20 NPCs lining the street, alternating sides.
+npcs:
+  - id: 1
+    waypoints: [ { at_ms: 0, pos: {x:  5,  y:  4} } ]
+  - id: 2
+    waypoints: [ { at_ms: 0, pos: {x:  8,  y: -3} } ]
+  - id: 3
+    waypoints: [ { at_ms: 0, pos: {x: 12,  y:  5} } ]
+  - id: 4
+    waypoints: [ { at_ms: 0, pos: {x: 16,  y: -4} } ]
+  - id: 5
+    waypoints: [ { at_ms: 0, pos: {x: 20,  y:  3} } ]
+  - id: 6
+    waypoints: [ { at_ms: 0, pos: {x: 24,  y: -5} } ]
+  - id: 7
+    waypoints: [ { at_ms: 0, pos: {x: 28,  y:  4} } ]
+  - id: 8
+    waypoints: [ { at_ms: 0, pos: {x: 32,  y: -3} } ]
+  - id: 9
+    waypoints: [ { at_ms: 0, pos: {x: 36,  y:  5} } ]
+  - id: 10
+    waypoints: [ { at_ms: 0, pos: {x: 40,  y: -4} } ]
+  - id: 11
+    waypoints: [ { at_ms: 0, pos: {x: 44,  y:  3} } ]
+  - id: 12
+    waypoints: [ { at_ms: 0, pos: {x: 48,  y: -5} } ]
+  - id: 13
+    waypoints: [ { at_ms: 0, pos: {x: 52,  y:  4} } ]
+  - id: 14
+    waypoints: [ { at_ms: 0, pos: {x: 56,  y: -3} } ]
+  - id: 15
+    waypoints: [ { at_ms: 0, pos: {x: 60,  y:  5} } ]
+  - id: 16
+    waypoints: [ { at_ms: 0, pos: {x: 64,  y: -4} } ]
+  - id: 17
+    waypoints: [ { at_ms: 0, pos: {x: 68,  y:  3} } ]
+  - id: 18
+    waypoints: [ { at_ms: 0, pos: {x: 72,  y: -5} } ]
+  - id: 19
+    waypoints: [ { at_ms: 0, pos: {x: 76,  y:  4} } ]
+  - id: 20
+    waypoints: [ { at_ms: 0, pos: {x: 80,  y: -3} } ]

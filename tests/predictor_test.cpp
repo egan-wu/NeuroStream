@@ -40,13 +40,35 @@ Config make_cfg() {
     c.lod_manager.hysteresis_pct   = 20;
     c.lod_manager.bands            = {{0, 10}, {1, 30}, {2, 100}};
     c.predictor.policy             = "lod";
+    c.intent_predictor.fov_deg            = 120;
+    c.intent_predictor.look_ahead_ms      = 500;
+    c.intent_predictor.close_m            = 10;
+    c.intent_predictor.near_m             = 30;
+    c.intent_predictor.visible_m          = 100;
+    c.intent_predictor.stopped_dist_m     = 5.0;
+    c.intent_predictor.stopped_speed_m_s  = 1.0;
     return c;
 }
 
-Scenario one_npc(std::uint32_t id, std::vector<Waypoint> wps, int dur_ms) {
+// Build a scenario with a static player at origin and a single NPC moving
+// from `start_d` to `end_d` along the +x axis during [0, dur_ms].
+Scenario one_npc(std::uint32_t id, double start_d, double end_d, int dur_ms,
+                 const std::string& priority = "normal") {
     Scenario s;
+    s.schema_version = kScenarioSchemaVersion;
     s.duration_ms = dur_ms;
-    s.npcs.push_back(NpcSpec{id, std::move(wps), "normal"});
+    s.player.waypoints = {
+        {0,      {0.0, 0.0}, 0.0},
+        {dur_ms, {0.0, 0.0}, 0.0},
+    };
+    NpcSpec npc;
+    npc.id = id;
+    npc.priority = priority;
+    npc.waypoints = {
+        {0,      {start_d, 0.0}, {}},
+        {dur_ms, {end_d,   0.0}, {}},
+    };
+    s.npcs.push_back(std::move(npc));
     return s;
 }
 
@@ -98,9 +120,7 @@ TEST_CASE("select_lod: hysteresis prevents thrashing at LOD1/LOD2 boundary") {
 
 TEST_CASE("LodPredictor issues prefetches as NPC crosses bands") {
     auto cfg = make_cfg();
-    Scenario s = one_npc(5,
-        {{0, 80.0}, {500, 5.0}},   // far → very close over 500 ms
-        1000);
+    Scenario s = one_npc(5, /*start_d=*/80.0, /*end_d=*/5.0, /*dur=*/1000);
 
     Clock clk; EventQueue q; RecordingSink sink;
     AIWeightInjector inj(cfg.ai_weights);
@@ -121,7 +141,7 @@ TEST_CASE("LodPredictor in-flight tracking suppresses duplicate prefetches") {
     // NPC stays at fixed distance 5m → cold start picks LOD2 (conservative),
     // then immediately upgrades to LOD0 on next tick. After issuing each
     // prefetch we should NOT re-issue the same (npc, lod) pair.
-    Scenario s = one_npc(7, {{0, 5.0}, {1000, 5.0}}, 1000);
+    Scenario s = one_npc(7, /*start_d=*/5.0, /*end_d=*/5.0, /*dur=*/1000);
 
     Clock clk; EventQueue q; RecordingSink sink;
     AIWeightInjector inj(cfg.ai_weights);
@@ -146,7 +166,7 @@ TEST_CASE("LodPredictor in-flight tracking suppresses duplicate prefetches") {
 
 TEST_CASE("LodPredictor: NPC stays beyond all bands → no prefetch") {
     auto cfg = make_cfg();
-    Scenario s = one_npc(9, {{0, 200.0}, {1000, 150.0}}, 1000);
+    Scenario s = one_npc(9, /*start_d=*/200.0, /*end_d=*/150.0, /*dur=*/1000);
 
     Clock clk; EventQueue q; RecordingSink sink;
     AIWeightInjector inj(cfg.ai_weights);

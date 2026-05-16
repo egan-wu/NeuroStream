@@ -1,60 +1,61 @@
+schema_version: 3
 name: stress
 duration_ms: 2000
 
-# Combat-burst stress test: 10 NPCs all rush into LOD0 (combat) range at
-# roughly the same time, alongside a sustained texture burst, racing against
-# the audio stream. This is where FIFO falls behind QoS.
-#
-# Under LodPredictor, the simultaneous distance-crossings produce a burst of
-# weight prefetches around t≈500 ms. Under ScriptedPredictor (baseline), all
-# 10 LOD0 prefetches fire at t=0 — even more punishing for audio.
+# Combat-burst stress test: 10 NPCs all rush into LOD0 range at roughly the
+# same time. Phase 6 fix (velocity look-ahead) should let IntentPredictor
+# skip the wasted LOD2→LOD1 stair-climb that hurt Phase 4 LodPredictor.
 
-audio:
-  enabled: true
+audio: { enabled: true }
+
+player:
+  waypoints:
+    - { at_ms: 0,    pos: { x: 0, y: 0 }, facing_deg: 0 }
+    - { at_ms: 2000, pos: { x: 0, y: 0 }, facing_deg: 0 }   # player stays put
 
 texture_bursts:
-  - at_ms: 500
-    rate_mbps: 500
-    duration_ms: 500
+  - { at_ms: 500, rate_mbps: 500, duration_ms: 500 }
 
+# All 10 NPCs converge from ~80m to ~5m by t=500ms. 150 m/s — fast approach,
+# look-ahead should detect this and request LOD0 directly.
 npcs:
   - id: 1
     waypoints:
-      - { at_ms: 0,   distance_m: 80 }
-      - { at_ms: 500, distance_m: 5  }
+      - { at_ms: 0,   pos: { x:  80, y:   0 } }
+      - { at_ms: 500, pos: { x:   5, y:   0 } }
   - id: 2
     waypoints:
-      - { at_ms: 0,   distance_m: 80 }
-      - { at_ms: 500, distance_m: 5  }
+      - { at_ms: 0,   pos: { x:  60, y:  50 } }
+      - { at_ms: 500, pos: { x:   4, y:   3 } }
   - id: 3
     waypoints:
-      - { at_ms: 0,   distance_m: 80 }
-      - { at_ms: 500, distance_m: 5  }
+      - { at_ms: 0,   pos: { x:   0, y:  80 } }
+      - { at_ms: 500, pos: { x:   0, y:   5 } }
   - id: 4
     waypoints:
-      - { at_ms: 0,   distance_m: 80 }
-      - { at_ms: 500, distance_m: 5  }
+      - { at_ms: 0,   pos: { x: -60, y:  50 } }
+      - { at_ms: 500, pos: { x:  -4, y:   3 } }
   - id: 5
     waypoints:
-      - { at_ms: 0,   distance_m: 80 }
-      - { at_ms: 500, distance_m: 5  }
+      - { at_ms: 0,   pos: { x: -80, y:   0 } }
+      - { at_ms: 500, pos: { x:  -5, y:   0 } }
   - id: 6
     waypoints:
-      - { at_ms: 0,   distance_m: 80 }
-      - { at_ms: 510, distance_m: 5  }
+      - { at_ms: 0,   pos: { x: -60, y: -50 } }
+      - { at_ms: 510, pos: { x:  -4, y:  -3 } }
   - id: 7
     waypoints:
-      - { at_ms: 0,   distance_m: 80 }
-      - { at_ms: 510, distance_m: 5  }
+      - { at_ms: 0,   pos: { x:   0, y: -80 } }
+      - { at_ms: 510, pos: { x:   0, y:  -5 } }
   - id: 8
     waypoints:
-      - { at_ms: 0,   distance_m: 80 }
-      - { at_ms: 510, distance_m: 5  }
+      - { at_ms: 0,   pos: { x:  60, y: -50 } }
+      - { at_ms: 510, pos: { x:   4, y:  -3 } }
   - id: 9
     waypoints:
-      - { at_ms: 0,   distance_m: 80 }
-      - { at_ms: 510, distance_m: 5  }
+      - { at_ms: 0,   pos: { x:  50, y:  60 } }
+      - { at_ms: 510, pos: { x:   3, y:   4 } }
   - id: 10
     waypoints:
-      - { at_ms: 0,   distance_m: 80 }
-      - { at_ms: 510, distance_m: 5  }
+      - { at_ms: 0,   pos: { x: -50, y:  60 } }
+      - { at_ms: 510, pos: { x:  -3, y:   4 } }

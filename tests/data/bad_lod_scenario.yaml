@@ -1,12 +1,14 @@
-name: bad_distance
+schema_version: 3
+name: bad_priority
 duration_ms: 1000
-
 audio:
   enabled: false
-
-# distance_m must be non-negative — Phase 4 rejects this.
+player:
+  waypoints:
+    - { at_ms: 0, pos: {x: 0, y: 0}, facing_deg: 0 }
+# Invalid priority value — must be "normal" or "quest"
 npcs:
   - id: 1
+    priority: vip
     waypoints:
-      - { at_ms: 0,   distance_m: -5 }
-      - { at_ms: 500, distance_m:  5 }
+      - { at_ms: 0, pos: {x: 5, y: 0} }

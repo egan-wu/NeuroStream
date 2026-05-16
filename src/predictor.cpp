@@ -122,8 +122,10 @@ void LodPredictor::tick(Clock& clock, EventQueue& q,
                         AIWeightInjector& weights, TransactionSink& sink) {
     int t_ms = static_cast<int>(clock.now() / 1000);
 
+    Vec2 player_pos = position_at(scenario_.player.waypoints, t_ms);
     for (const auto& npc : scenario_.npcs) {
-        double d = distance_at(npc.waypoints, t_ms);
+        Vec2 npc_pos = position_at(npc.waypoints, t_ms);
+        double d = distance(player_pos, npc_pos);
         auto it = last_lod_.find(npc.id);
         int prev = (it == last_lod_.end()) ? -2 : it->second;
         int desired = select_lod(d, prev);
@@ -163,12 +165,162 @@ void LodPredictor::on_evict(std::uint32_t npc_id, int lod) {
     resident_.erase(key(npc_id, lod));
 }
 
+// ----- IntentPredictor -----
+
+IntentPredictor::IntentPredictor(const Scenario& s, const Config& cfg)
+    : scenario_(s), lm_(cfg.lod_manager), ip_(cfg.intent_predictor) {
+    tick_us_       = lm_.tick_us;
+    look_ahead_ms_ = s.intent_look_ahead_ms_override.value_or(ip_.look_ahead_ms);
+    fov_deg_       = s.intent_fov_deg_override.value_or(ip_.fov_deg);
+}
+
+void IntentPredictor::start(Clock& clock, EventQueue& q,
+                            AIWeightInjector& weights, TransactionSink& sink) {
+    q.schedule(0, [this, &clock, &q, &weights, &sink] {
+        tick(clock, q, weights, sink);
+    });
+}
+
+bool IntentPredictor::is_in_frustum(const Vec2& player_pos, double player_facing_deg,
+                                    const Vec2& npc_pos) const {
+    double dx = npc_pos.x - player_pos.x;
+    double dy = npc_pos.y - player_pos.y;
+    double d  = std::sqrt(dx * dx + dy * dy);
+    if (d < 1e-9) return true;   // NPC stepped onto player — treat as visible
+    double rad = player_facing_deg * M_PI / 180.0;
+    double fx = std::cos(rad);
+    double fy = std::sin(rad);
+    double dot = (fx * dx + fy * dy) / d;     // cosine of angle to NPC
+    double half_fov_rad = (fov_deg_ * 0.5) * M_PI / 180.0;
+    return dot >= std::cos(half_fov_rad);
+}
+
+IntentPredictor::NpcSnapshot
+IntentPredictor::make_snapshot(const NpcSpec& npc, int t_ms,
+                               const Vec2& player_pos, const Vec2& player_vel,
+                               double player_facing_deg) const {
+    NpcSnapshot s;
+    s.npc = &npc;
+    Vec2 npc_pos = position_at(npc.waypoints, t_ms);
+    Vec2 npc_vel = velocity_at(npc.waypoints, t_ms);
+
+    // Current distance
+    double cur_d = distance(player_pos, npc_pos);
+
+    // Future positions after look_ahead_ms
+    Vec2 p_future{ player_pos.x + player_vel.x * look_ahead_ms_,
+                   player_pos.y + player_vel.y * look_ahead_ms_ };
+    Vec2 n_future{ npc_pos.x    + npc_vel.x   * look_ahead_ms_,
+                   npc_pos.y    + npc_vel.y   * look_ahead_ms_ };
+    double future_d = distance(p_future, n_future);
+
+    // Cascade rules use the *closer* of current vs predicted distance — this
+    // makes the predictor preemptive when convergence is detected.
+    s.distance_m = std::min(cur_d, future_d);
+
+    s.in_frustum    = is_in_frustum(player_pos, player_facing_deg, npc_pos);
+    s.approaching   = (future_d < cur_d - 0.1);     // 0.1m epsilon to ignore noise
+    s.quest         = (npc.priority == "quest");
+    s.interact_active = false;  // filled by tick() — depends on current time
+    return s;
+}
+
+int IntentPredictor::select_lod(const NpcSnapshot& s, bool player_stopped) const {
+    // Rule 1: quest NPC → always LOD0
+    if (s.quest) return 0;
+
+    // Rule 2: active interaction → LOD0
+    if (s.interact_active) return 0;
+
+    // Rule 3: stopped near, in frustum → LOD0
+    if (player_stopped &&
+        s.in_frustum &&
+        s.distance_m <= ip_.stopped_dist_m) return 0;
+
+    // Rule 4: in frustum, close → LOD1
+    if (s.in_frustum && s.distance_m <= static_cast<double>(ip_.close_m)) return 1;
+
+    // Rule 5: in frustum, near, and (player or NPC) approaching → LOD1
+    if (s.in_frustum && s.distance_m <= static_cast<double>(ip_.near_m) && s.approaching)
+        return 1;
+
+    // Rule 6: in frustum, near → LOD2
+    if (s.in_frustum && s.distance_m <= static_cast<double>(ip_.near_m)) return 2;
+
+    // Rule 7: visible (frustum or not) → LOD2
+    if (s.distance_m <= static_cast<double>(ip_.visible_m)) return 2;
+
+    // Rule 8: out of range
+    return -1;
+}
+
+void IntentPredictor::tick(Clock& clock, EventQueue& q,
+                           AIWeightInjector& weights, TransactionSink& sink) {
+    int t_ms = static_cast<int>(clock.now() / 1000);
+
+    Vec2 player_pos      = position_at(scenario_.player.waypoints, t_ms);
+    Vec2 player_vel      = velocity_at(scenario_.player.waypoints, t_ms);
+    double player_facing = facing_at(scenario_.player.waypoints, t_ms);
+
+    double player_speed = std::sqrt(player_vel.x * player_vel.x +
+                                    player_vel.y * player_vel.y) * 1000.0;  // m/ms → m/s
+    bool player_stopped = player_speed < ip_.stopped_speed_m_s;
+
+    for (const auto& npc : scenario_.npcs) {
+        auto snap = make_snapshot(npc, t_ms, player_pos, player_vel, player_facing);
+
+        // Check active interactions
+        for (const auto& ix : scenario_.interactions) {
+            if (ix.npc_id != npc.id) continue;
+            if (t_ms >= ix.at_ms && t_ms < ix.at_ms + ix.duration_ms) {
+                snap.interact_active = true;
+                break;
+            }
+        }
+
+        int desired = select_lod(snap, player_stopped);
+        last_lod_[npc.id] = desired;
+
+        if (desired < 0) continue;
+
+        auto k = key(npc.id, desired);
+        if (in_flight_.count(k) > 0) continue;
+        if (resident_.count(k) > 0) continue;
+
+        in_flight_.insert(k);
+        weights.schedule_prefetch(clock, q, sink, clock.now(), npc.id, desired);
+    }
+
+    Time next = clock.now() + static_cast<Time>(tick_us_);
+    Time end  = static_cast<Time>(scenario_.duration_ms) * 1000;
+    if (next < end) {
+        q.schedule(next, [this, &clock, &q, &weights, &sink] {
+            tick(clock, q, weights, sink);
+        });
+    }
+}
+
+void IntentPredictor::on_complete(std::uint32_t npc_id, int lod) {
+    auto k = key(npc_id, lod);
+    in_flight_.erase(k);
+    resident_.insert(k);
+}
+
+bool IntentPredictor::is_resident(std::uint32_t npc_id, int lod) const {
+    return resident_.count(key(npc_id, lod)) > 0;
+}
+
+void IntentPredictor::on_evict(std::uint32_t npc_id, int lod) {
+    resident_.erase(key(npc_id, lod));
+}
+
 // ----- factory -----
 
 std::unique_ptr<Predictor> make_predictor(const std::string& policy,
                                           const Scenario& s, const Config& cfg) {
     if (policy == "scripted") return std::make_unique<ScriptedPredictor>(s);
     if (policy == "lod")      return std::make_unique<LodPredictor>(s, cfg);
+    if (policy == "intent")   return std::make_unique<IntentPredictor>(s, cfg);
     throw std::invalid_argument("unknown predictor policy: " + policy);
 }
 

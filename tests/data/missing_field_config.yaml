@@ -32,7 +32,15 @@ lod_manager:
     - { lod: 1, max_distance_m: 30 }
     - { lod: 2, max_distance_m: 100 }
 predictor:
-  policy: lod
+  policy: intent
+intent_predictor:
+  fov_deg: 120
+  look_ahead_ms: 500
+  close_m: 10
+  near_m: 30
+  visible_m: 100
+  stopped_dist_m: 5.0
+  stopped_speed_m_s: 1.0
 scheduler:
   policy: qos
   quantum_us: 100

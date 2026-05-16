@@ -1,0 +1,10 @@
+# Phase 4 schema (v2) — must be rejected after Phase 6 migration.
+name: legacy_v2
+duration_ms: 1000
+audio:
+  enabled: true
+npcs:
+  - id: 1
+    waypoints:
+      - { at_ms: 0,   distance_m: 80 }
+      - { at_ms: 500, distance_m: 5  }

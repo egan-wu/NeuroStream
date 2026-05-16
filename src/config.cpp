@@ -90,6 +90,15 @@ Config load_config(const std::filesystem::path& path) {
     auto pr = require(root, "predictor", "");
     c.predictor.policy = as<std::string>(pr, "policy", "predictor");
 
+    auto ip = require(root, "intent_predictor", "");
+    c.intent_predictor.fov_deg            = as<int>(ip, "fov_deg", "intent_predictor");
+    c.intent_predictor.look_ahead_ms      = as<int>(ip, "look_ahead_ms", "intent_predictor");
+    c.intent_predictor.close_m            = as<int>(ip, "close_m", "intent_predictor");
+    c.intent_predictor.near_m             = as<int>(ip, "near_m", "intent_predictor");
+    c.intent_predictor.visible_m          = as<int>(ip, "visible_m", "intent_predictor");
+    c.intent_predictor.stopped_dist_m     = as<double>(ip, "stopped_dist_m", "intent_predictor");
+    c.intent_predictor.stopped_speed_m_s  = as<double>(ip, "stopped_speed_m_s", "intent_predictor");
+
     auto sch = require(root, "scheduler", "");
     c.scheduler.policy                  = as<std::string>(sch, "policy", "scheduler");
     c.scheduler.quantum_us              = as<int>(sch, "quantum_us", "scheduler");

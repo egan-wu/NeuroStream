@@ -1,4 +1,8 @@
+schema_version: 3
 name: bad
 # duration_ms intentionally omitted
 audio:
   enabled: true
+player:
+  waypoints:
+    - { at_ms: 0, pos: {x: 0, y: 0}, facing_deg: 0 }
