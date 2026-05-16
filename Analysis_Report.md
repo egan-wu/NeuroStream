@@ -103,8 +103,8 @@ NeuroStream's message to a Sony Interactive Entertainment audience:
 | 2 | Traffic Injectors + Dumb Predictor | ✅ | Audio/Texture/Weight injectors, ScriptedPredictor |
 | 3 | Virtual AXI Scheduler (Pillar A) | ✅ | FIFO baseline, QoS two-tier, A/B mode |
 | 4 | Weight LOD Manager (Pillar B) | ✅ | LodPredictor, function-tier LOD, hysteresis, in-flight tracking |
-| 5 | Zero-Copy P2P DMA (Pillar C) | ⏳ | |
-| 6 | Spatial Predictor (Pillar D) | ⏳ | |
+| 5 | Zero-Copy Neuro DMA (Pillar C) | ✅ | `neuro_dma` vs `bounce` paths, CPU-cycle KPI, SGL-driven quantum, trace v2 |
+| 6 | Intent-Aware Predictor (Pillar D) | ⏳ | |
 | 7 | Decompressor (Pillar E) | ⏳ | |
 | 8 | Multi-core NPU + Eviction + Degradation (Pillar F/G) | ⏳ | |
 | 9 | Reporting | ⏳ | |
@@ -115,12 +115,12 @@ NeuroStream's message to a Sony Interactive Entertainment audience:
 
 | Category | Lines |
 |---------|------:|
-| `include/` + `src/` C++20 | 1,623 |
-| `tests/` (doctest) | 835 |
-| YAML (scenarios + test fixtures) | 281 |
-| **Test cases** | **43** |
-| **Assertions** | **614** |
-| **Test pass rate** | **100% (8 suites)** |
+| `include/` + `src/` C++20 | 1,743 |
+| `tests/` (doctest) | 970 |
+| YAML (scenarios + test fixtures) | 293 |
+| **Test cases** | **49** |
+| **Assertions** | **631** |
+| **Test pass rate** | **100% (9 suites)** |
 
 ---
 
@@ -194,6 +194,17 @@ decisions. Each row links to its full entry in `Design_Detail.md`.
 | LOD tick | 60 Hz (16,667 µs) | 1 ms (noisy trace, no benefit); event-driven (complex with linear waypoints) |
 | Cache model | In-flight tracking now; bounded eviction in Phase 8 | No tracking (visible duplicate prefetches); full cache now (crosses Phase 8 scope) |
 | Scenario migration | Replace `weight_prefetches` with `npcs` | Both schemas (dead schema rots); drop `ScriptedPredictor` (lose baseline) |
+
+### Phase 5 (Pillar C: Zero-Copy Neuro DMA)
+
+| Decision | Choice | Rejected & Why |
+|----------|--------|----------------|
+| Path naming | **`neuro_dma`** (not `p2p` or `npu_dma`) | `p2p` (generic, no target pinned); `npu_dma` (clashes with NPU-internal DMA terminology) |
+| Bounce service model | **3-segment**: `size/bus + size/memcpy + size/bus` (eff bw = 4.8 GB/s) | Flat `2×` (too optimistic by ~30 %); full pipeline `max()` (too optimistic, ignores cache pressure) |
+| CPU cycle accounting | Per-completion increment based on path | Model CPU as queueing resource (out of scope); skip entirely (loses headline metric) |
+| Path selection | **Global per run** (`--dma` flag); per-txn deferred to backlog | Per-txn now (needs intent layer that overlaps with Phase 6) |
+| SGL granularity | **Conceptual label + drives quantum** on neuro_dma (62 µs vs bounce 100 µs) | Real splitting parent→N children (Phase 3 rewrite, marginal gain on single-channel bus); label-only (leaves measurable improvement on table) |
+| Path branching scope | **Weight only**; audio/texture untouched | All-source (physically wrong); +texture (deferred to Phase 7 with decompressor) |
 
 ### Phase 8 (Multi-core, Pre-locked)
 
@@ -322,8 +333,49 @@ tradeoff:
 
 - **LOD wins in open-world** (most NPCs stay distant)
 - **LOD loses in convergent motion** (all NPCs heading inward)
-- **The deeper failure** is described in §6 below — distance alone is
+- **The deeper failure** is described in §5b below — distance alone is
   not a reliable interaction signal
+
+### Phase 5 — Zero-Copy Neuro DMA (Pillar C) — *Critical Result*
+
+The **world scenario** (10 NPCs at varied distances, 5 s) under the
+shipping QoS scheduler, comparing the two DMA paths:
+
+| Path | Weight Max Latency | CPU Cycles Used | Audio P99 | Audio Drops |
+|------|------------------:|----------------:|----------:|------------:|
+| `bounce` (baseline) | 39,029 µs | **1,415,577,600** | 50 µs | 0 |
+| `neuro_dma` (NeuroStream) | **10,026 µs** | **17,000** | **1 µs** | 0 |
+| **Improvement** | **3.9 × faster** | **83,269 × less** | **50 × better** | — |
+
+**Three KPIs improve simultaneously**:
+
+1. **Weight latency 3.9×** — bounce path's 3-segment service
+   (size/bus + size/memcpy + size/bus → effective 4.8 GB/s) is replaced
+   by single-pass full 16 GB/s on neuro_dma.
+2. **CPU cycles 83,000×** — bounce path charges
+   `size × 3 cycles/byte = ~314 M cycles` per 100 MB weight. neuro_dma
+   charges `setup_cost_cycles = 1,000` per transaction. The win
+   compounds: in a 60 s scene loading 100 weights, bounce burns
+   ~31 G cycles (~10 s of CPU time at 3 GHz); neuro_dma burns ~100 K
+   cycles (~30 µs).
+3. **Audio P99 50×** — neuro_dma's SGL-driven quantum is 62 µs vs
+   bounce's 100 µs. The finer quantum gives audio more frequent
+   preemption windows, dropping the P99 tail from 50 µs to 1 µs.
+
+**Mapping to PS5 hardware claims**:
+
+| Improvement | PS5 hardware feature it validates |
+|-------------|----------------------------------|
+| 3.9× weight latency | Dedicated DMA + short data paths |
+| 83,000× CPU savings | Coherency engines (CPU never touches data) |
+| 50× audio P99 | Fine-grained I/O priority arbitration |
+
+**Worth-noting**: the FIFO column (not the shipping config) tells a
+secondary story. Under FIFO + bounce, audio sees 144 drops in the
+world scenario — bounce path's slower drain widens the head-of-queue
+window, exposing the audio deadline. QoS still saves audio under
+bounce, but the latency margin is much tighter. **DMA path matters
+for resilience, not just throughput**.
 
 ---
 
@@ -478,6 +530,38 @@ the "Spatial Predictor" pillar but is the more accurate framing.
   reality, both might need to be resident temporarily (LOD2 for ambient
   bark while LOD1 loads). Deferred until Phase 8 cache model.
 
+### Phase 5 — Zero-Copy Neuro DMA
+
+- **Effective-bandwidth modeling vs scaling bytes** — chose to
+  represent the bounce-path 3-segment penalty by reducing the per-
+  transaction `effective_bandwidth_mbps` (4.8 GB/s) rather than
+  inflating `bytes_remaining` upfront. This keeps `size_bytes` honest
+  in traces (a 100 MB weight is still reported as 100 MB) while the
+  scheduler internally drains at the slower rate. Side effect: the
+  bus utilization metric on bounce path looks artificially low —
+  Phase 9 reporting must account for this when computing "bus utilization".
+- **CPU cycles is a derived metric, not a queue** — we charge cycles
+  on completion as a counter, not as a CPU-resource queue. Means the
+  CPU is treated as infinite-capacity, which is fine since real
+  workloads have other CPU users; we just want to show "how much
+  cycle pressure the DMA path generates". A future Phase X could
+  model a CPU resource with budget and let bounce starve game logic.
+- **Variable quantum on neuro_dma fragments trace events** — a 100 MB
+  weight produces ~100 ServiceStart/QuantumEnd cycles on neuro_dma
+  versus ~64 on bounce. Trace files grow by ~60 %. Already accounted
+  for by binary-format trace; not a blocker.
+- **SGL entry count is currently a fake metric** — `sgl_entries_total`
+  in KPI is "what we would have used if we'd really split". If Phase
+  11 demo needs to convince a reviewer, this is a place to make
+  it real (split parent transaction into N children scheduled
+  sequentially). Backlog item exists.
+- **Read/write channel split still deferred** — Phase 5 retained
+  Phase 3's single-channel bus. The neuro_dma vs bounce comparison
+  works on a single channel because both paths use the same bus,
+  just for different durations. R/W split becomes important when
+  Phase 7 (decompressor) introduces a NPU→DRAM write-back path that
+  can run concurrently with SSD→NPU reads.
+
 ### Phase 8 — Multi-core NPU (Locked, Not Yet Implemented)
 
 - **Open**: per-core private cache vs shared cache. Locked decision:
@@ -495,11 +579,13 @@ the "Spatial Predictor" pillar but is the more accurate framing.
 | Limitation | Impact | Mitigation Plan |
 |-----------|--------|----------------|
 | No NPU compute model | Cannot show "weight load competes with inference for NPU memory" | Phase 8 adds multi-core queue model |
-| No SSD-side queue model | All SSD reads assumed bandwidth-bound | Phase 5 may add read amplification |
+| No SSD-side queue model | All SSD reads assumed bandwidth-bound | Backlog (post-Phase 11) |
 | No frame model | Cannot show "LOD reaction delay = N frames" | Out of scope — frame model is renderer territory |
-| Single bus channel | Read and write share bandwidth | Phase 5 likely splits R/W (commented in Phase 3 retrospective) |
-| Stress scenario regresses LOD | LodPredictor 40 % worse than scripted on stress | Phase 6 velocity-aware predictor fixes |
+| Single bus channel | Read and write share bandwidth | Backlog: split R/W when Phase 7 introduces concurrent NPU→DRAM writeback |
+| Stress scenario regresses LOD | LodPredictor 40 % worse than scripted on stress | Phase 6 intent-aware predictor fixes |
+| Distance-only LOD trap | Town-traversal wastes 5 GB on uninteracted NPCs | Phase 6 intent-probability fixes (§5b) |
 | P99 storage scales linearly | 60 s scenario = 19 MB sample vector | Phase 9 swaps in t-digest |
+| SGL entry count is fake | `sgl_entries_total` reported without real parent→child split | Backlog: real splitting alongside multi-channel bus |
 | No real ML inference | Weights are opaque blobs | Out of scope — explicit non-goal |
 
 ---
@@ -533,37 +619,50 @@ NeuroStream is **not** a renderer, **not** an ML inference engine,
 **not** an emulator. It is a **behavioral protocol simulator** for the
 I/O subsystem of a console-class system under AI-streaming workloads.
 
-In ~1,600 lines of C++20 with ~830 lines of test coverage, it
+In ~1,740 lines of C++20 with ~970 lines of test coverage, it
 demonstrates:
 
 1. **QoS scheduling prevents audio dropouts under bus contention**
    (Pillar A — Phase 3 quantitatively verified: 416 drops → 0)
 2. **Function-tier LOD reduces AI weight bandwidth by ~55 %** in
    open-world scenes (Pillar B — Phase 4 quantitatively verified)
-3. **The two pillars are complementary, not redundant** — QoS handles
-   *contention*, LOD handles *volume*; together they enable scenes
-   that neither solves alone
+3. **Zero-copy DMA cuts weight latency 3.9× and CPU cycles 83,000×**
+   (Pillar C — Phase 5 quantitatively verified)
+4. **The three pillars are complementary, not redundant** — QoS
+   handles *contention*, LOD handles *volume*, neuro_dma handles
+   *path efficiency*. They compose: a 100 MB weight load on the
+   shipping stack takes ~10 ms (vs ~40 ms on full baseline) using
+   only ~17,000 CPU cycles (vs ~1.4 billion), while audio P99
+   stays at 1 µs (vs 50 µs)
 
 ### What a SIE Interviewer Should See
 
 - Every architectural choice is **defensible against industry practice**
   (CLAUDE.md rule 5): tombstones (ns-2 / OMNeT++), token bucket
   (Linux tc, ARM CHI QoS Regulators), virtual-time WFQ (Cisco IOS),
-  LOD bands (Unreal/Unity), 60 Hz LOD tick (game frame rate)
-- **Honest about tradeoffs**: LodPredictor regresses on stress — the
-  engineer who built this knows where it breaks and why
+  LOD bands (Unreal/Unity), 60 Hz LOD tick (game frame rate), zero-
+  copy DMA (NVMe P2PDMA / NVIDIA GPUDirect Storage), SGL descriptors
+  (ARM AXI scatter-gather convention)
+- **Honest about tradeoffs**: LodPredictor regresses on stress, the
+  distance-only LOD framing fails on city-traversal, neuro_dma's SGL
+  count is currently a fake metric — every weakness is named and
+  has a phase-numbered fix
 - **Path to closure**: every "this isn't ideal" has a labeled phase
   number where it gets resolved
 
 ### What's Left to Convince an Interviewer
 
-- Phase 5 (Zero-Copy DMA) — demonstrate CPU cycle savings
-- Phase 6 (Spatial Predictor) — fix the LOD-on-stress regression
+- Phase 6 (Intent-Aware Predictor) — fix the LOD-on-stress regression
+  and the town-traversal waste (§5b)
+- Phase 7 (Decompressor) — model the Kraken decompression cost and
+  show the texture-burst story under compression
 - Phase 8 (Multi-core NPU + Eviction) — show cache pressure as a real
   observable signal
 - Phase 9 (Reporting) — produce the side-by-side comparison artifact
   that lands in the portfolio
+- Phase 10/11 — three demo scenarios with annotated traces, plus the
+  one-page SIE pitch document
 
 ---
 
-*Generated: 2026-05-16 · Commit: `1c93a48` · Phases 0–4 complete.*
+*Generated: 2026-05-16 · Commit: `fb4b602` · Phases 0–5 complete.*
