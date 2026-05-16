@@ -61,7 +61,19 @@ scheduler:
     normal: 1                       # texture class
 
 dma:
-  path: p2p                         # one of: bounce | p2p
+  # Path used for SSD → NPU weight transfers. Audio and texture have
+  # their own DMA engines and are unaffected by this switch.
+  path: neuro_dma                   # one of: bounce | neuro_dma
+  bounce:
+    # CPU-driven memcpy bandwidth (representative console-class single-
+    # thread STREAM Triad). Reality: 10–15 GB/s on Zen 2/3 + DDR4/GDDR6.
+    memcpy_bandwidth_mbps: 12000
+    cycles_per_byte: 3              # CPU cycles burned per memcpy'd byte
+  neuro_dma:
+    # SGL entry size drives the scheduler quantum on this path.
+    # 1 MB → 62.5 µs at 16 GB/s → finer preemption than bounce's 100 µs.
+    sgl_entry_bytes: 1048576
+    setup_cost_cycles: 1000         # SGL descriptor build (one-shot per txn)
 
 eviction:
   policy: distance_lru              # Phase 8: distance-weighted LRU

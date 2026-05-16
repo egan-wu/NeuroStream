@@ -115,11 +115,15 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] `Predictor` factory + `predictor.policy` config switch (`scripted`/`lod`)
 - [x] Migrate scenarios: replace `weight_prefetches` with `npcs:` waypoints
 
-### Phase 5 — Pillar C: Zero-Copy P2P DMA `[ ]`
-- [ ] Model two transfer paths: `bounce-buffer` vs `p2p-dma`
-- [ ] Scatter-Gather List builder
-- [ ] Account for CPU cycles consumed in each path
-- [ ] Verify NPU receives identical bytes in both paths (correctness)
+### Phase 5 — Pillar C: Zero-Copy Neuro DMA `[x]`
+- [x] Model two transfer paths for weights only:
+      `bounce` (3-segment: bus + memcpy + bus → effective 4.8 GB/s)
+      vs `neuro_dma` (single-pass full 16 GB/s + SGL quantum)
+- [x] Variable quantum: bounce = 100 µs; neuro_dma = 62 µs (1 MB SGL)
+- [x] CPU cycles KPI: `cpu_cycles_used` per completion
+- [x] Trace schema v2: `dma_path` byte + `sgl_entries` field
+- [x] `--dma bounce|neuro_dma` CLI flag; A/B is now 2×2 (policy × dma)
+- [x] Audio/texture unaffected (`SourceKind` branch in scheduler)
 
 ### Phase 6 — Extended Pillar D: Intent-Aware Predictor `[ ]`
 > Broader than originally framed. Distance alone is a weak interaction
@@ -178,6 +182,21 @@ revisited later. Each entry names the phase that would pick it up.
   introduces the SSD→NPU path, at which point splitting AR/AW
   channels becomes meaningful for the zero-copy story. **Pickup:
   Phase 5.**
+
+- **Per-transaction DMA path selection** — Phase 5 ships with global
+  `dma.path` (one path per run, A/B by re-running). A real system
+  picks per-transaction based on size, NPU memory pressure, and
+  application hints (e.g. tiny weights → bounce because setup
+  overhead dominates; large weights → neuro_dma). Needs an intent
+  layer that overlaps with Phase 6 predictor work. **Pickup: Phase 6
+  or later.**
+
+- **Physical SGL splitting (parent → N child transactions)** — Phase 5
+  uses variable quantum (62.5 µs on neuro_dma) to approximate the
+  preemption benefit of SGL granularity without restructuring
+  scheduler internals. Real SGL splitting becomes valuable once a
+  multi-channel bus is in place (one channel per SGL entry can run
+  in parallel). **Pickup: alongside multi-channel bus work.**
 
 ---
 

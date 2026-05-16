@@ -71,8 +71,20 @@ struct SchedulerConfig {
     BulkWeights  bulk_weights;
 };
 
+struct BounceDmaConfig {
+    int memcpy_bandwidth_mbps;
+    int cycles_per_byte;
+};
+
+struct NeuroDmaConfig {
+    int sgl_entry_bytes;
+    int setup_cost_cycles;
+};
+
 struct DmaConfig {
-    std::string path;          // "bounce" | "p2p"
+    std::string     path;          // "bounce" | "neuro_dma"
+    BounceDmaConfig bounce;
+    NeuroDmaConfig  neuro_dma;
 };
 
 struct EvictionConfig {

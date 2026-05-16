@@ -675,6 +675,132 @@ Cross-cutting decisions made before any phase implementation begins.
 
 ---
 
+## Phase 5 — Zero-Copy Neuro DMA
+
+### Decision: Path naming — `neuro_dma` (not `p2p`)
+
+- **Choice:** The dedicated SSD→NPU weight-loading path is named
+  `neuro_dma` in `config.yaml` and source. The bounce path keeps the
+  name `bounce`. Industry uses generic terms ("P2PDMA", "GPUDirect
+  Storage", "SmartAccess Storage"); `neuro_dma` is a project-local
+  name that pins the target to NPU and avoids confusion with NPU-
+  internal DMA.
+- **Reason:** "P2P DMA" or "NPU DMA" both invite ambiguity — the
+  former is generic, the latter clashes with the NPU's internal DMA
+  engines (which exist but are out of scope here). `neuro_dma`
+  unambiguously refers to "the path that streams neural-network
+  weights from SSD into NPU memory bypassing CPU".
+- **Alternatives considered:**
+  - `p2p` — rejected: generic, doesn't pin to NPU target.
+  - `npu_dma` — rejected: collides with intra-NPU DMA terminology.
+  - `weight_dma` — rejected: less aligned with project name.
+- **Implications:** `config.dma.path` accepts `"bounce"` or
+  `"neuro_dma"`. Code/comments/docs use this name consistently.
+- **Date:** 2026-05-16
+
+### Decision: Bounce-path service model — three-segment formula
+
+- **Choice:** Bounce-path service time is modeled as
+  `size/bus + size/memcpy + size/bus`, not a flat `2 × size/bus`.
+  Three separate stages: SSD→DRAM (bus), CPU memcpy (DRAM bandwidth),
+  DRAM→NPU (bus). The `memcpy_bandwidth_mbps` is a tunable config
+  defaulting to 12 GB/s, representative of typical console-class
+  single-thread memcpy (Zen 2 / Zen 3 with DDR4 or GDDR6, lmbench
+  STREAM Triad in the 10–15 GB/s range).
+- **Reason:** Flat `2×` is between completely-serialized and
+  perfectly-pipelined; the three-segment fully-serialized formula is
+  closer to the worst-case real measurement (~20 ms vs 12.5 ms vs
+  8 ms for 100 MB), aligns with the "we are pessimistic about
+  baseline" narrative, and surfaces CPU memcpy as a first-class cost
+  the user can vary.
+- **Alternatives considered:**
+  - Flat `2 × size/bus` — rejected: too optimistic, underestimates
+    bounce path's actual cost by ~30 %.
+  - Fully-pipelined `max()` — rejected: too optimistic, real systems
+    rarely achieve full overlap due to cache pressure and coherency.
+- **Implications:** `config.dma.bounce.memcpy_bandwidth_mbps` exists
+  and must be set. Tests assert the three-segment service time.
+- **Date:** 2026-05-16
+
+### Decision: CPU cycle accounting via per-completion increment
+
+- **Choice:** A new KPI counter `cpu_cycles_used` accumulates per
+  completion based on path:
+  - `bounce` path: `size_bytes × cycles_per_byte` (default 3 cycles/B,
+    representing CPU memcpy + L3 cache pressure)
+  - `neuro_dma` path: `setup_cost_cycles` only (default 1,000 cycles
+    per transaction for SGL descriptor build)
+- **Reason:** Standard practice (Linux perf counter, ARM PMU). The
+  zero-copy win is "millions of cycles versus a few thousand" — that
+  ratio is the headline KPI for Pillar C.
+- **Alternatives considered:**
+  - Model CPU as a queueing resource — rejected: out of scope, we
+    don't simulate game-logic CPU load.
+  - Don't model cycles at all — rejected: loses the main story.
+- **Implications:** `Scheduler::Kpi` grows one field. Phase 9 report
+  formats this as "MB-equivalent" or "ms-of-CPU-time" for readability.
+- **Date:** 2026-05-16
+
+### Decision: Path selection is global per run (not per-transaction)
+
+- **Choice:** `config.dma.path` selects `bounce` or `neuro_dma` for
+  the entire run. A/B is achieved by running the simulator twice with
+  different paths. Per-transaction path selection is **backlog**.
+- **Reason:** Same shape as `scheduler.policy` A/B (Phase 3). Lets
+  reports diff two complete traces cleanly. Per-transaction would
+  require additional decision logic (size threshold, NPU memory
+  pressure, etc.) that belongs in a future smart-path predictor.
+- **Alternatives considered:**
+  - Per-transaction — deferred to backlog; needs intent/state
+    awareness that Phase 5 doesn't have.
+- **Implications:** Backlog entry "Per-transaction DMA path
+  selection" is added to `PROJECT_PLAN.md`. CLI gains `--dma`.
+- **Date:** 2026-05-16
+
+### Decision: SGL is conceptual + drives quantum on neuro_dma path
+
+- **Choice:** `neuro_dma` path's quantum equals the SGL entry size
+  (default 1 MB → 62.5 µs at 16 GB/s). `bounce` path keeps the original
+  100 µs quantum. Transactions are **not** physically split into child
+  sub-transactions — `sgl_entries` is a trace label = `size /
+  sgl_entry_bytes`, recorded for narrative purposes only.
+- **Reason:** Smaller quantum = finer preemption granularity =
+  better audio latency tail. Implementing real SGL splitting would
+  require parent-child transaction relationships throughout the
+  scheduler (Phase 3 architecture rewrite) for a single-channel bus
+  with marginal additional gain. The variable quantum captures 80 %
+  of the benefit at 5 % of the implementation cost.
+- **Alternatives considered:**
+  - Real SGL splitting (parent transaction → N child transactions)
+    — rejected: large Phase 3 refactor; benefit only visible with
+    multi-channel bus (out of scope).
+  - Concept-label only (no quantum change) — rejected: leaves a
+    measurable improvement on the table.
+- **Implications:** `Scheduler` reads quantum from `cfg.dma.path` not
+  `cfg.scheduler.quantum_us` for `neuro_dma`. Trace schema v2 adds
+  `dma_path` byte (replacing one of the v1 reserved bytes) and
+  `sgl_entries` count is reportable from CSV.
+- **Date:** 2026-05-16
+
+### Decision: Only weight transactions use the DMA-path switch
+
+- **Choice:** Audio and texture transactions always use the existing
+  service model (single bus pass at quantum 100 µs). Only weight
+  transactions branch on `cfg.dma.path`.
+- **Reason:** Audio and texture have their own DMA engines in real
+  hardware (audio mixer DMA, graphics DMA) — neither involves the
+  SSD→NPU path. Putting them on `neuro_dma` would be physically
+  meaningless and would muddy the A/B comparison.
+- **Alternatives considered:**
+  - All traffic switches — rejected: physically wrong.
+  - Texture also branches — deferred to Phase 7 when decompressor
+    is added (texture also goes through Kraken).
+- **Implications:** `Transaction::source == Weight` is the branch
+  condition. Audio/texture tests are unaffected.
+- **Date:** 2026-05-16
+
+---
+
 ## Phase 8 — Multi-core NPU, Eviction, Degradation
 
 ### Decision: NPU core count default = 4

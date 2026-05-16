@@ -21,9 +21,11 @@ struct RunResult {
 
 RunResult run_one(const Config& cfg_in, const Scenario& scn,
                   const std::string& policy,
+                  const std::string& dma_path,
                   const std::string& trace_bin, const std::string& trace_csv) {
     Config cfg = cfg_in;
     cfg.scheduler.policy = policy;
+    if (!dma_path.empty()) cfg.dma.path = dma_path;
 
     Clock       clock;
     EventQueue  q;
@@ -71,7 +73,8 @@ void print_kpi(const char* label, Scheduler::Kpi kpi) {
     std::printf("  [%s] issued=%llu completed=%llu dropped=%llu | "
                 "audio_completed=%llu audio_dropped=%llu | "
                 "audio_lat_us mean=%.1f max=%lld p99=%lld | "
-                "weight_lat_us max=%lld\n",
+                "weight_lat_us max=%lld | "
+                "cpu_cycles=%llu sgl_entries=%llu\n",
                 label,
                 (unsigned long long)kpi.issued,
                 (unsigned long long)kpi.completed,
@@ -81,7 +84,9 @@ void print_kpi(const char* label, Scheduler::Kpi kpi) {
                 kpi.audio_lat_mean,
                 (long long)kpi.audio_lat_max,
                 (long long)p,
-                (long long)kpi.weight_lat_max);
+                (long long)kpi.weight_lat_max,
+                (unsigned long long)kpi.cpu_cycles_used,
+                (unsigned long long)kpi.sgl_entries_total);
 }
 
 }
@@ -92,6 +97,7 @@ int main(int argc, char** argv) {
     std::string trace_bin     = "run.bin";
     std::string trace_csv     = "run.csv";
     std::string policy        = "";   // empty = use config; "fifo"/"qos" overrides; "ab" runs both
+    std::string dma           = "";   // empty = use config; "bounce"/"neuro_dma" overrides
     bool        ab_mode       = false;
 
     for (int i = 1; i < argc; ++i) {
@@ -101,6 +107,7 @@ int main(int argc, char** argv) {
         else if (a == "--trace-bin" && i + 1 < argc) trace_bin = argv[++i];
         else if (a == "--trace-csv" && i + 1 < argc) trace_csv = argv[++i];
         else if (a == "--policy" && i + 1 < argc) policy = argv[++i];
+        else if (a == "--dma" && i + 1 < argc) dma = argv[++i];
         else if (a == "--ab") ab_mode = true;
     }
 
@@ -114,20 +121,31 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::printf("NeuroStream — Phase 3 scheduler\n");
+    std::printf("NeuroStream — Phase 5 (scheduler × dma)\n");
     std::printf("  scenario: %s (%d ms), npu cores: %d\n",
                 scn.name.c_str(), scn.duration_ms, cfg.npu.cores);
 
     if (ab_mode) {
-        auto fifo = run_one(cfg, scn, "fifo", trace_bin + ".fifo", trace_csv + ".fifo");
-        auto qos  = run_one(cfg, scn, "qos",  trace_bin + ".qos",  trace_csv + ".qos");
-        std::printf("A/B comparison:\n");
-        print_kpi("fifo", fifo.kpi);
-        print_kpi("qos ", qos.kpi);
+        // 2×2 A/B: {fifo, qos} × {bounce, neuro_dma}
+        std::printf("A/B comparison (policy × dma):\n");
+        for (auto p : {"fifo", "qos"}) {
+            for (auto d : {"bounce", "neuro_dma"}) {
+                std::string suffix = std::string(".") + p + "." + d;
+                auto r = run_one(cfg, scn, p, d,
+                                 trace_bin + suffix, trace_csv + suffix);
+                char label[32];
+                std::snprintf(label, sizeof(label), "%s+%s", p, d);
+                print_kpi(label, r.kpi);
+            }
+        }
     } else {
         std::string p = policy.empty() ? cfg.scheduler.policy : policy;
-        auto r = run_one(cfg, scn, p, trace_bin, trace_csv);
-        std::printf("policy=%s wall=%lld us\n", p.c_str(), (long long)r.wall_clock_us);
+        std::string d = dma;   // empty means use config
+        auto r = run_one(cfg, scn, p, d, trace_bin, trace_csv);
+        std::printf("policy=%s dma=%s wall=%lld us\n",
+                    p.c_str(),
+                    (d.empty() ? cfg.dma.path.c_str() : d.c_str()),
+                    (long long)r.wall_clock_us);
         print_kpi(p.c_str(), r.kpi);
         std::printf("trace: %s + %s\n", trace_bin.c_str(), trace_csv.c_str());
     }

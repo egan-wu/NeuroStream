@@ -12,6 +12,7 @@ ns_add_test(injector_test)
 ns_add_test(scenario_test)
 ns_add_test(scheduler_test)
 ns_add_test(predictor_test)
+ns_add_test(dma_test)
 
 target_compile_definitions(config_test PRIVATE
     NS_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")

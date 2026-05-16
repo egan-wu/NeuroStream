@@ -100,6 +100,16 @@ Config load_config(const std::filesystem::path& path) {
 
     auto dma = require(root, "dma", "");
     c.dma.path = as<std::string>(dma, "path", "dma");
+    auto bounce = require(dma, "bounce", "dma");
+    c.dma.bounce.memcpy_bandwidth_mbps =
+        as<int>(bounce, "memcpy_bandwidth_mbps", "dma.bounce");
+    c.dma.bounce.cycles_per_byte =
+        as<int>(bounce, "cycles_per_byte", "dma.bounce");
+    auto ndma = require(dma, "neuro_dma", "");
+    c.dma.neuro_dma.sgl_entry_bytes =
+        as<int>(ndma, "sgl_entry_bytes", "dma.neuro_dma");
+    c.dma.neuro_dma.setup_cost_cycles =
+        as<int>(ndma, "setup_cost_cycles", "dma.neuro_dma");
 
     auto ev = require(root, "eviction", "");
     c.eviction.policy = as<std::string>(ev, "policy", "eviction");

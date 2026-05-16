@@ -41,7 +41,13 @@ scheduler:
     high: 2
     normal: 1
 dma:
-  path: p2p
+  path: neuro_dma
+  bounce:
+    memcpy_bandwidth_mbps: 12000
+    cycles_per_byte: 3
+  neuro_dma:
+    sgl_entry_bytes: 1048576
+    setup_cost_cycles: 1000
 eviction:
   policy: distance_lru
 degradation:

@@ -13,11 +13,26 @@ namespace neurostream {
 
 // Per-transaction state during scheduling. Lifecycle: Arrived → ServiceStart
 // → (Complete | Drop). Carries bytes_remaining for partial-quantum service.
+//
+// Phase 5: weight transactions carry path-specific service parameters set by
+// Scheduler::accept(). Audio/texture inherit defaults from cfg.
 struct PendingTxn {
     Transaction   tx;
     std::uint32_t bytes_remaining;
     Time          arrived_at;
     bool          service_started = false;
+
+    // Effective service bandwidth (accounts for bounce-path 3-segment penalty)
+    int           effective_bandwidth_mbps = 0;
+    // Service quantum in µs (path-specific on neuro_dma; default elsewhere)
+    Time          quantum_us = 0;
+    // Path used by this transaction (only meaningful for weight; None for others)
+    DmaPath       dma_path = DmaPath::None;
+    // CPU cycles to charge on completion (size × cycles_per_byte for bounce,
+    // setup_cost_cycles for neuro_dma, 0 for audio/texture)
+    std::uint64_t cpu_cycles_cost = 0;
+    // Number of SGL entries (concept label, 1 for bounce/non-weight)
+    std::uint32_t sgl_entries = 1;
 };
 
 // Common scheduler base: bus model, KPI counters, milestone trace emission.
@@ -41,6 +56,11 @@ public:
         // P99 needs the full distribution; keep a small reservoir of samples.
         std::vector<Time> audio_lat_samples;
         Time          weight_lat_max  = 0;
+        // Phase 5: total CPU cycles consumed by DMA bookkeeping/memcpy across
+        // all weight transactions (huge for bounce, tiny for neuro_dma).
+        std::uint64_t cpu_cycles_used = 0;
+        // Phase 5: total SGL entries issued (concept-only label).
+        std::uint64_t sgl_entries_total = 0;
     };
     const Kpi& kpi() const noexcept { return kpi_; }
 
@@ -56,7 +76,8 @@ protected:
     // Helpers for derived classes.
     void start_service_if_idle();
     void schedule_quantum_end(PendingTxn* p);
-    void emit(EventType, const Transaction&, std::uint32_t latency_us = 0);
+    void emit(EventType, const Transaction&, std::uint32_t latency_us = 0,
+              DmaPath dma_path = DmaPath::None);
 
     const Config&      cfg_;
     Clock&             clock_;

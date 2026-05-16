@@ -17,7 +17,11 @@ static Config make_cfg(const std::string& policy) {
     c.texture = {500, 100, 262144, "normal"};
     c.ai_weights = {100, 30, 10, "high"};
     c.scheduler = {policy, 100, 5, {2, 1}};
-    c.dma = {"p2p"};
+    c.dma.path = "neuro_dma";
+    c.dma.bounce.memcpy_bandwidth_mbps = 12000;
+    c.dma.bounce.cycles_per_byte = 3;
+    c.dma.neuro_dma.sgl_entry_bytes = 1048576;
+    c.dma.neuro_dma.setup_cost_cycles = 1000;
     c.eviction = {"distance_lru"};
     c.degradation = {50};
     return c;

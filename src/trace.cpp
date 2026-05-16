@@ -24,6 +24,15 @@ std::string_view to_string(QosTag q) noexcept {
     return "?";
 }
 
+std::string_view to_string(DmaPath d) noexcept {
+    switch (d) {
+        case DmaPath::None:     return "none";
+        case DmaPath::Bounce:   return "bounce";
+        case DmaPath::NeuroDma: return "neuro_dma";
+    }
+    return "?";
+}
+
 TraceWriter::TraceWriter(const std::filesystem::path& binary_path,
                          const std::filesystem::path& csv_path) {
     if (!binary_path.empty()) {
@@ -39,7 +48,7 @@ TraceWriter::TraceWriter(const std::filesystem::path& binary_path,
     if (!csv_path.empty()) {
         csv_.open(csv_path, std::ios::trunc);
         if (!csv_) throw std::runtime_error("cannot open trace csv: " + csv_path.string());
-        csv_ << "timestamp_us,source_id,event_type,qos_tag,size_bytes,latency_us,transaction_id\n";
+        csv_ << "timestamp_us,source_id,event_type,qos_tag,dma_path,size_bytes,latency_us,transaction_id\n";
     }
 }
 
@@ -54,6 +63,7 @@ void TraceWriter::write(const TraceRecord& rec) {
              << rec.source_id << ','
              << to_string(rec.event_type) << ','
              << to_string(rec.qos_tag) << ','
+             << to_string(rec.dma_path) << ','
              << rec.size_bytes << ','
              << rec.latency_us << ','
              << rec.transaction_id << '\n';

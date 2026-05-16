@@ -15,13 +15,15 @@ inline std::uint64_t bytes_for(int mbps, Time us) {
 Scheduler::Scheduler(const Config& cfg, Clock& clock, EventQueue& q, TraceWriter* trace)
     : cfg_(cfg), clock_(clock), q_(q), trace_(trace) {}
 
-void Scheduler::emit(EventType ev, const Transaction& tx, std::uint32_t latency_us) {
+void Scheduler::emit(EventType ev, const Transaction& tx, std::uint32_t latency_us,
+                     DmaPath dma_path) {
     if (!trace_) return;
     TraceRecord r{};
     r.timestamp_us   = clock_.now();
     r.source_id      = static_cast<std::uint32_t>(tx.source) << 24 | (tx.source_inst & 0xFFFFFF);
     r.event_type     = ev;
     r.qos_tag        = tx.qos;
+    r.dma_path       = dma_path;
     r.size_bytes     = tx.size_bytes;
     r.latency_us     = latency_us;
     r.transaction_id = tx.id;
@@ -33,8 +35,42 @@ void Scheduler::accept(const Transaction& tx) {
     p->tx              = tx;
     p->bytes_remaining = tx.size_bytes;
     p->arrived_at      = clock_.now();
+
+    // Phase 5: weight transactions branch on dma.path. Others use defaults.
+    const int bus_bw = cfg_.bus.total_bandwidth_mbps;
+    if (tx.source == SourceKind::Weight && cfg_.dma.path == "neuro_dma") {
+        // Direct SSD→NPU: full bus bandwidth; quantum = SGL entry size /
+        // bandwidth, giving finer preemption granularity.
+        p->effective_bandwidth_mbps = bus_bw;
+        long sgl_bytes = cfg_.dma.neuro_dma.sgl_entry_bytes;
+        p->quantum_us = (sgl_bytes + bus_bw - 1) / bus_bw;  // ceil
+        if (p->quantum_us <= 0) p->quantum_us = 1;
+        p->dma_path = DmaPath::NeuroDma;
+        p->cpu_cycles_cost = static_cast<std::uint64_t>(cfg_.dma.neuro_dma.setup_cost_cycles);
+        p->sgl_entries = (tx.size_bytes + sgl_bytes - 1) / sgl_bytes;
+    } else if (tx.source == SourceKind::Weight) {
+        // Bounce path: effective_bw such that
+        //   1/effective_bw = 2/bus + 1/memcpy  (3-segment serialized model)
+        // ⇒ effective_bw = bus*memcpy / (2*memcpy + bus)
+        long bus = bus_bw;
+        long mc  = cfg_.dma.bounce.memcpy_bandwidth_mbps;
+        p->effective_bandwidth_mbps = static_cast<int>(bus * mc / (2 * mc + bus));
+        p->quantum_us = cfg_.scheduler.quantum_us;
+        p->dma_path = DmaPath::Bounce;
+        p->cpu_cycles_cost =
+            static_cast<std::uint64_t>(tx.size_bytes) *
+            static_cast<std::uint64_t>(cfg_.dma.bounce.cycles_per_byte);
+        p->sgl_entries = 1;
+    } else {
+        p->effective_bandwidth_mbps = bus_bw;
+        p->quantum_us = cfg_.scheduler.quantum_us;
+        p->dma_path = DmaPath::None;
+        p->cpu_cycles_cost = 0;
+        p->sgl_entries = 1;
+    }
+
     kpi_.issued++;
-    emit(EventType::Arrive, tx);
+    emit(EventType::Arrive, tx, /*lat*/0, p->dma_path);
     on_arrive(std::move(p));
     start_service_if_idle();
 }
@@ -48,15 +84,16 @@ void Scheduler::start_service_if_idle() {
     if (!p->service_started) {
         p->service_started = true;
         emit(EventType::ServiceStart, p->tx,
-             static_cast<std::uint32_t>(clock_.now() - p->arrived_at));
+             static_cast<std::uint32_t>(clock_.now() - p->arrived_at),
+             p->dma_path);
     }
     schedule_quantum_end(p.release());
 }
 
 void Scheduler::schedule_quantum_end(PendingTxn* p_raw) {
     std::unique_ptr<PendingTxn> p(p_raw);
-    int  bandwidth = cfg_.bus.total_bandwidth_mbps;
-    Time quantum   = cfg_.scheduler.quantum_us;
+    int  bandwidth = p->effective_bandwidth_mbps;
+    Time quantum   = p->quantum_us;
     auto quantum_bytes = bytes_for(bandwidth, quantum);
 
     Time service_us;
@@ -77,8 +114,8 @@ void Scheduler::schedule_quantum_end(PendingTxn* p_raw) {
 }
 
 void Scheduler::on_quantum_end(std::unique_ptr<PendingTxn> p) {
-    int  bandwidth = cfg_.bus.total_bandwidth_mbps;
-    Time quantum   = cfg_.scheduler.quantum_us;
+    int  bandwidth = p->effective_bandwidth_mbps;
+    Time quantum   = p->quantum_us;
     auto quantum_bytes = bytes_for(bandwidth, quantum);
 
     auto served = std::min<std::uint64_t>(p->bytes_remaining, quantum_bytes);
@@ -87,8 +124,11 @@ void Scheduler::on_quantum_end(std::unique_ptr<PendingTxn> p) {
     if (p->bytes_remaining == 0) {
         // Done.
         Time e2e = clock_.now() - p->tx.issued_at;
-        emit(EventType::Complete, p->tx, static_cast<std::uint32_t>(e2e));
+        emit(EventType::Complete, p->tx, static_cast<std::uint32_t>(e2e),
+             p->dma_path);
         kpi_.completed++;
+        kpi_.cpu_cycles_used += p->cpu_cycles_cost;
+        kpi_.sgl_entries_total += p->sgl_entries;
         if (p->tx.source == SourceKind::Audio) {
             kpi_.audio_completed++;
             kpi_.audio_lat_max = std::max(kpi_.audio_lat_max, e2e);
@@ -114,7 +154,7 @@ void Scheduler::on_quantum_end(std::unique_ptr<PendingTxn> p) {
     } else {
         // Re-queue. Drop check: audio past deadline never gets back into queue.
         if (p->tx.deadline > 0 && clock_.now() >= p->tx.deadline) {
-            emit(EventType::Drop, p->tx);
+            emit(EventType::Drop, p->tx, /*lat*/0, p->dma_path);
             kpi_.dropped++;
             if (p->tx.source == SourceKind::Audio) kpi_.audio_dropped++;
         } else {

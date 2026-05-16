@@ -46,7 +46,11 @@ TEST_CASE("loads a valid config and parses every field") {
     CHECK(cfg.lod_manager.bands[2].max_distance_m == 100);
     CHECK(cfg.predictor.policy == "lod");
 
-    CHECK(cfg.dma.path == "p2p");
+    CHECK(cfg.dma.path == "neuro_dma");
+    CHECK(cfg.dma.bounce.memcpy_bandwidth_mbps == 12000);
+    CHECK(cfg.dma.bounce.cycles_per_byte == 3);
+    CHECK(cfg.dma.neuro_dma.sgl_entry_bytes == 1048576);
+    CHECK(cfg.dma.neuro_dma.setup_cost_cycles == 1000);
     CHECK(cfg.eviction.policy == "distance_lru");
     CHECK(cfg.degradation.weight_load_timeout_ms == 50);
 }

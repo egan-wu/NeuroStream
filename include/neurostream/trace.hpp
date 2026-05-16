@@ -23,6 +23,13 @@ enum class QosTag : std::uint8_t {
     Normal   = 2,
 };
 
+// DMA path used by a weight transaction. Audio/texture always emit None.
+enum class DmaPath : std::uint8_t {
+    None      = 0,    // not applicable (audio/texture)
+    Bounce    = 1,    // SSD → DRAM → memcpy → NPU
+    NeuroDma  = 2,    // SSD → NPU directly
+};
+
 #pragma pack(push, 1)
 struct TraceHeader {
     char          magic[4];        // "NSTR"
@@ -37,7 +44,8 @@ struct TraceRecord {
     std::uint32_t source_id;
     EventType     event_type;
     QosTag        qos_tag;
-    std::uint16_t reserved;
+    DmaPath       dma_path;        // v2: was reserved in v1
+    std::uint8_t  reserved8;       // align padding
     std::uint32_t size_bytes;
     std::uint32_t latency_us;
     std::uint64_t transaction_id;
@@ -45,7 +53,7 @@ struct TraceRecord {
 static_assert(sizeof(TraceRecord) == 32);
 #pragma pack(pop)
 
-inline constexpr std::uint32_t kTraceVersion = 1;
+inline constexpr std::uint32_t kTraceVersion = 2;
 
 class TraceWriter {
 public:
@@ -71,5 +79,6 @@ private:
 
 std::string_view to_string(EventType e) noexcept;
 std::string_view to_string(QosTag q) noexcept;
+std::string_view to_string(DmaPath d) noexcept;
 
 }
