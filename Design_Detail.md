@@ -1230,3 +1230,119 @@ Cross-cutting decisions made before any phase implementation begins.
 - **Implications:** `to_string(EventType)` extended with two cases.
   CSV gets two new value strings: `evict`, `degrade`.
 - **Date:** 2026-05-16
+
+---
+
+## Phase 9 — Reporting
+
+### Decision: Results land in `results/<scenario>/` directories
+
+- **Choice:** Every run writes to `results/<scenario_name>/`,
+  containing `summary.md`, `summary.csv`, and per-config trace files.
+  Replaces the Phase 5 flat-suffix scheme (`run.bin.fifo+bounce+none`).
+- **Reason:** Portfolio-friendly file layout. Reviewers cloning the
+  repo see one folder per experiment with a self-contained set of
+  artifacts. The Phase 5 flat scheme worked but produces ~20 files
+  in the repo root for a 5-level ladder — visually noisy.
+- **Alternatives considered:**
+  - Keep flat scheme — rejected: clutter, poor discoverability.
+  - One file per config in repo root with consistent prefix —
+    rejected: still mixes scenarios.
+- **Implications:** `main` creates the directory before writing.
+  `.gitignore` keeps `results/` out of the tree by default; user
+  can opt-in for sharing.
+- **Date:** 2026-05-17
+
+### Decision: Markdown summary is the primary output; CSV is secondary
+
+- **Choice:** After each `--ab` run, write `summary.md` with a
+  human-readable comparison table including "vs baseline"
+  improvement multipliers, plus `summary.csv` with the same KPI
+  numbers in flat rows for batch analysis.
+- **Reason:** Markdown is the portfolio / PR / blog format. CSV is
+  the long-term archive format. Both come for free from the same
+  KPI snapshot.
+- **Alternatives considered:**
+  - JSON only — rejected: not human-readable in a portfolio context.
+  - HTML — rejected: requires viewing infrastructure; markdown
+    renders natively on GitHub.
+- **Implications:** New `ReportWriter` module formats KPI structs
+  into both targets. Improvement multipliers are computed against
+  the first row (baseline).
+- **Date:** 2026-05-17
+
+### Decision: P99 storage moves from `vector<Time>` to bucketed histogram
+
+- **Choice:** `Scheduler::Kpi::audio_lat_samples` (currently
+  `std::vector<Time>`) is replaced with a log-spaced histogram
+  (~50 buckets covering 1 µs → 10 s). P99 / P99.9 / max are computed
+  from bucket counts.
+- **Reason:** Phase 9-scale scenarios (long runs, batch sweeps)
+  produce millions of samples. A 60 s scenario already produces 19
+  MB of samples; 10 minutes would be 200 MB. The histogram trades
+  exact percentile precision (now bucket-rounded) for O(buckets)
+  memory. Standard practice in P99 telemetry (HdrHistogram, Prometheus
+  buckets).
+- **Alternatives considered:**
+  - HdrHistogram library — rejected: 1000 LOC dependency for our
+    use case. A hand-rolled 50-bucket log histogram is ~100 LOC.
+  - Keep vector for short scenarios, swap for long — rejected:
+    cognitive overhead; one mechanism is cleaner.
+- **Implications:** P99 numbers may shift by a few µs (bucket
+  rounding). Tests use loose bounds; previously exact KPIs are now
+  reported with explicit uncertainty.
+- **Date:** 2026-05-17
+
+### Decision: `neurostream --diff a.csv b.csv` for comparison
+
+- **Choice:** Add a subcommand mode that reads two CSV summaries
+  and prints a delta table. No external tool (no awk, no Python).
+- **Reason:** Maintains the C++-only build policy. CSV-to-CSV diff
+  is a 20-line function. Makes the workflow self-contained:
+  produce CSVs with `--ab`, compare with `--diff`.
+- **Alternatives considered:**
+  - Provide a Python script — rejected: violates no-Python policy.
+  - Ship a shell pipe with awk — rejected: portability across
+    macOS/Linux awk versions is brittle.
+- **Implications:** Minor CLI surface growth. `--diff` accepts two
+  paths and a single optional `--baseline-row` argument.
+- **Date:** 2026-05-17
+
+### Decision: Each scenario gets a sibling Markdown README
+
+- **Choice:** For every `scenarios/X.yaml` there is a
+  `scenarios/X.md` describing: purpose, expected pillar activations,
+  expected KPI shape, and reproduce-command. Generated/maintained by
+  hand, not auto.
+- **Reason:** Portfolio viewer should not need to read C++ to
+  understand what each scenario is testing. The READMEs are also
+  the documentation for what makes each scenario "fair" or
+  "adversarial" (e.g. cache_pressure intentionally uses a small
+  cache).
+- **Alternatives considered:**
+  - Embed in YAML as a long comment — rejected: not rendered by
+    GitHub, awkward formatting.
+  - Single docs file listing all scenarios — rejected: doesn't
+    co-locate with the scenario file, breaks "one folder, complete
+    artifact" principle.
+- **Implications:** Six new README files (demo / world / town /
+  stress / cache_pressure / degrade). Future scenarios add their
+  own.
+- **Date:** 2026-05-17
+
+### Decision: Improvement multipliers are computed as "lower is better"
+
+- **Choice:** In the markdown summary, an "improvement" of `N×`
+  means `baseline / current` for latency / cycle metrics (lower is
+  better). For "worse" rows, show `-N×` instead of inverting.
+- **Reason:** Aligns with industry "speedup" / "reduction"
+  terminology. Avoids confusion where larger numbers could mean
+  different things across metrics.
+- **Alternatives considered:**
+  - Show absolute deltas only — rejected: loses the "10× faster"
+    framing that's the headline.
+  - Always show both — rejected: column bloat.
+- **Implications:** ReportWriter has a small `format_improvement()`
+  helper. Hits-style metrics (cache_hits where higher is better)
+  use a different format with `+N×`.
+- **Date:** 2026-05-17

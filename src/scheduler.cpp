@@ -164,7 +164,7 @@ void Scheduler::on_quantum_end(std::unique_ptr<PendingTxn> p) {
             kpi_.audio_lat_mean +=
                 (static_cast<double>(e2e) - kpi_.audio_lat_mean) /
                 static_cast<double>(kpi_.audio_completed);
-            kpi_.audio_lat_samples.push_back(e2e);
+            kpi_.audio_lat_hist.record(e2e);
         } else if (p->tx.source == SourceKind::Weight) {
             kpi_.weight_lat_max = std::max(kpi_.weight_lat_max, e2e);
             if (on_complete_) {

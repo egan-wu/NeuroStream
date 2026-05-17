@@ -107,10 +107,10 @@ TEST_CASE("QoS prioritizes critical audio over a queued bulk transaction") {
 
     CHECK(s->kpi().audio_completed == 1);
     CHECK(s->kpi().audio_dropped == 0);
-    // Audio P99 must be well under the deadline window.
-    auto samples = s->kpi().audio_lat_samples;
-    REQUIRE(!samples.empty());
-    CHECK(samples.front() < 200);  // arrived after at most one quantum (100 μs) + service
+    // Audio P99 must be well under the deadline window. Histogram is
+    // bucket-rounded; loose upper bound of 256 µs is safe.
+    CHECK(s->kpi().audio_lat_hist.count() == 1);
+    CHECK(s->kpi().audio_lat_hist.percentile(0.99) < 256);
 }
 
 TEST_CASE("QoS vs FIFO: audio fares dramatically better under contention") {

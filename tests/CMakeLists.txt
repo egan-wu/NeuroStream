@@ -17,6 +17,7 @@ ns_add_test(intent_test)
 ns_add_test(compression_test)
 ns_add_test(npu_cache_test)
 ns_add_test(phase8_integration_test)
+ns_add_test(report_test)
 
 target_compile_definitions(config_test PRIVATE
     NS_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")

@@ -2,6 +2,7 @@
 #include "neurostream/clock.hpp"
 #include "neurostream/config.hpp"
 #include "neurostream/event_queue.hpp"
+#include "neurostream/latency_histogram.hpp"
 #include "neurostream/trace.hpp"
 #include "neurostream/transaction.hpp"
 #include <cstdint>
@@ -55,8 +56,8 @@ public:
         std::uint64_t audio_dropped   = 0;
         Time          audio_lat_max   = 0;
         double        audio_lat_mean  = 0.0;
-        // P99 needs the full distribution; keep a small reservoir of samples.
-        std::vector<Time> audio_lat_samples;
+        // Phase 9: log-spaced histogram replaces full-sample reservoir.
+        LatencyHistogram audio_lat_hist;
         Time          weight_lat_max  = 0;
         // Phase 5: total CPU cycles consumed by DMA bookkeeping/memcpy across
         // all weight transactions (huge for bounce, tiny for neuro_dma).

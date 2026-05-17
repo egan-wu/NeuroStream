@@ -176,10 +176,14 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] `scenarios/cache_pressure.yaml` + `scenarios/degrade.yaml` for
       Pillar F/G demos
 
-### Phase 9 — Reporting `[ ]`
-- [ ] CSV schema for per-event trace
-- [ ] KPI summary written to markdown after each run
-- [ ] Side-by-side baseline vs NeuroStream report (CSV diff helper in C++)
+### Phase 9 — Reporting `[x]`
+- [x] `results/<scenario>/` directory layout with summary.md / summary.csv
+- [x] `ReportWriter` module — markdown + CSV from Scheduler::Kpi / PredictorKpi
+- [x] Improvement multipliers vs baseline (1× / Nx better / -Nx)
+- [x] `--diff a.csv b.csv` subcommand
+- [x] P99 storage: `vector<Time>` → 50-bucket log-spaced histogram
+- [x] Per-scenario sibling README (`scenarios/<name>.md`) × 6
+- [x] Tests for report formatting + histogram (report_test, 8 cases)
 
 ### Phase 10 — Scenarios & Demo `[ ]`
 - [ ] Scenario 1: Quiet world (sanity check)

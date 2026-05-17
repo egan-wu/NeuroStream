@@ -3,11 +3,13 @@
 #include "neurostream/event_queue.hpp"
 #include "neurostream/injector.hpp"
 #include "neurostream/predictor.hpp"
+#include "neurostream/report_writer.hpp"
 #include "neurostream/scenario.hpp"
 #include "neurostream/scheduler.hpp"
 #include "neurostream/trace.hpp"
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 
 using namespace neurostream;
@@ -65,16 +67,8 @@ RunResult run_one(const Config& cfg_in, const Scenario& scn,
     return r;
 }
 
-Time p99(std::vector<Time>& v) {
-    if (v.empty()) return 0;
-    std::sort(v.begin(), v.end());
-    std::size_t i = static_cast<std::size_t>(0.99 * static_cast<double>(v.size()));
-    if (i >= v.size()) i = v.size() - 1;
-    return v[i];
-}
-
 void print_kpi(const char* label, Scheduler::Kpi kpi, const PredictorKpi& pk) {
-    Time p = p99(kpi.audio_lat_samples);
+    Time p = kpi.audio_lat_hist.percentile(0.99);
     std::printf("  [%s] dropped=%llu | "
                 "audio_dropped=%llu lat_us(mean/max/p99)=%.1f/%lld/%lld | "
                 "weight_max=%lld | "
@@ -109,7 +103,10 @@ int main(int argc, char** argv) {
     std::string policy        = "";   // empty = use config; "fifo"/"qos" overrides; "ab" runs both
     std::string dma           = "";   // empty = use config
     std::string compression   = "";   // empty = use config
+    std::string results_dir   = "";   // empty = derive from scenario name
+    std::string diff_a, diff_b;       // --diff a.csv b.csv mode
     bool        ab_mode       = false;
+    bool        diff_mode     = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -120,7 +117,24 @@ int main(int argc, char** argv) {
         else if (a == "--policy" && i + 1 < argc) policy = argv[++i];
         else if (a == "--dma" && i + 1 < argc) dma = argv[++i];
         else if (a == "--compression" && i + 1 < argc) compression = argv[++i];
+        else if (a == "--results-dir" && i + 1 < argc) results_dir = argv[++i];
         else if (a == "--ab") ab_mode = true;
+        else if (a == "--diff" && i + 2 < argc) {
+            diff_mode = true;
+            diff_a = argv[++i];
+            diff_b = argv[++i];
+        }
+    }
+
+    if (diff_mode) {
+        auto a_rows = ReportWriter::read_csv(diff_a);
+        auto b_rows = ReportWriter::read_csv(diff_b);
+        if (a_rows.empty() || b_rows.empty()) {
+            std::fprintf(stderr, "diff: one or both CSVs empty/unreadable\n");
+            return 1;
+        }
+        ReportWriter::print_diff(a_rows, b_rows, diff_a, diff_b);
+        return 0;
     }
 
     Config   cfg;
@@ -133,18 +147,19 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::printf("NeuroStream — Phase 7 (scheduler × dma × compression)\n");
+    std::printf("NeuroStream — Phase 9 (scheduler × dma × compression × cache)\n");
     std::printf("  scenario: %s (%d ms), npu cores: %d\n",
                 scn.name.c_str(), scn.duration_ms, cfg.npu.cores);
 
+    std::filesystem::path rdir = results_dir.empty()
+        ? std::filesystem::path("results") / scn.name
+        : std::filesystem::path(results_dir);
+
     if (ab_mode) {
-        // 5-level "improvement ladder" for the PS5 story:
-        //   1. fifo  + bounce    + none       (baseline)
-        //   2. qos   + bounce    + none       (+QoS scheduler)
-        //   3. qos   + neuro_dma + none       (+zero-copy DMA)
-        //   4. qos   + neuro_dma + cpu        (+compression, software)
-        //   5. qos   + neuro_dma + inline_hw  (+hardware decompressor = full PS5)
-        std::printf("A/B comparison — 5-level improvement ladder:\n");
+        // 5-level "improvement ladder" for the PS5 story.
+        std::printf("A/B comparison — 5-level improvement ladder → %s\n",
+                    rdir.string().c_str());
+        std::filesystem::create_directories(rdir);
         struct Step { const char* pol; const char* dma; const char* cmp; };
         const Step ladder[] = {
             {"fifo", "bounce",    "none"},
@@ -153,14 +168,19 @@ int main(int argc, char** argv) {
             {"qos",  "neuro_dma", "cpu"},
             {"qos",  "neuro_dma", "inline_hw"},
         };
+        std::vector<LadderRow> rows;
         for (const auto& s : ladder) {
-            std::string suffix = std::string(".") + s.pol + "." + s.dma + "." + s.cmp;
-            auto r = run_one(cfg, scn, s.pol, s.dma, s.cmp,
-                             trace_bin + suffix, trace_csv + suffix);
             char label[48];
             std::snprintf(label, sizeof(label), "%s+%s+%s", s.pol, s.dma, s.cmp);
+            auto bin_path = (rdir / (std::string(label) + ".bin")).string();
+            auto csv_path = (rdir / (std::string(label) + ".csv")).string();
+            auto r = run_one(cfg, scn, s.pol, s.dma, s.cmp, bin_path, csv_path);
             print_kpi(label, r.kpi, r.predictor_kpi);
+            rows.push_back({label, r.kpi, r.predictor_kpi, r.wall_clock_us});
         }
+        ReportWriter::write_summary(rdir, scn.name, scn.duration_ms, rows);
+        std::printf("\nSummary written: %s/summary.md and summary.csv\n",
+                    rdir.string().c_str());
     } else {
         std::string p = policy.empty() ? cfg.scheduler.policy : policy;
         std::string d = dma;
